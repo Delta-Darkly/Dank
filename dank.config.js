@@ -9,7 +9,7 @@ const { createAgent } = require('dank-ai');
 
 module.exports = {
   // Project configuration
-  name: 'my-test-project',
+  name: 'test-scaffolding',
   
   // Define your agents
   agents: [
