@@ -32,9 +32,9 @@ module.exports = {
       //add in a pre-prompt pipeline that handler that can be used to modify and moderate requests to the prompt before it is sent to the LLM, and handler for when the llm responds with response but before it is sent to the client
       .setPrompt("You are a helpful assistant that responds to direct prompts.") // ✅ Auto-enables direct prompting
       .setBaseImage("nodejs-22") //latest is nodejs-20
-      .setPort(3000)
-      .enableDirectPrompting({
+      .setPromptingServer({
         protocol: "http",
+        port: 3000,
         authentication: false,
         maxConnections: 50,
       })
@@ -114,7 +114,6 @@ User Question: ${data.prompt}`;
       })
       // ❌ No setPrompt() = Direct prompting auto-disabled
       .setBaseImage('nodejs-20')
-      .setPort(3001)
       // ❌ No more .disableDirectPrompting() or .enableHttpApi() needed!
       // Direct prompting auto-disabled (no setPrompt())
       // HTTP API auto-enabled (routes added below)
@@ -181,7 +180,6 @@ User Question: ${data.prompt}`;
       // ❌ No routes = HTTP API auto-disabled
       // ❌ No handlers = Event handling auto-disabled
       .setBaseImage('python-311')
-      .setPort(3002)
       // ❌ No more explicit disable calls needed!
       // All features auto-disabled based on usage
       .setResources({
@@ -202,7 +200,6 @@ User Question: ${data.prompt}`;
       // ❌ No routes = HTTP API auto-disabled
       // ✅ Has handlers = Event handling auto-enabled
       .setBaseImage('python-311')
-      .setPort(3004)
       .setResources({
         memory: '1g',
         cpu: 1
@@ -229,9 +226,9 @@ User Question: ${data.prompt}`;
       })
       .setPrompt('You are a versatile agent supporting all communication methods.')  // ✅ Auto-enables direct prompting
       .setBaseImage('latest')
-      .setPort(3003)
-      .enableDirectPrompting({
+      .setPromptingServer({
         protocol: 'websocket',
+        port: 3003,
         authentication: true,
         maxConnections: 100
       })
