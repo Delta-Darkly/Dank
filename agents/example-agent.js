@@ -5,7 +5,7 @@
  * You can create multiple agent files and import them in your config.
  */
 
-const { createAgent } = require('dank');
+const { createAgent } = require('dank-ai');
 
 const exampleAgent = createAgent('example-agent')
   .setLLM('openai', {
