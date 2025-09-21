@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+
+/**
+ * Dank CLI - Agent Orchestration Command Line Interface
+ */
+
+const { program } = require('commander');
+const chalk = require('chalk');
+const pkg = require('../package.json');
+
+// Import command handlers
+const { runCommand } = require('../lib/cli/run');
+const { initCommand } = require('../lib/cli/init');
+const { statusCommand } = require('../lib/cli/status');
+const { stopCommand } = require('../lib/cli/stop');
+const { logsCommand } = require('../lib/cli/logs');
+
+program
+  .name('dank')
+  .description('🚀 Dank Agent Service - Docker-based AI agent orchestration')
+  .version(pkg.version);
+
+// Run command - main orchestration command
+program
+  .command('run')
+  .description('Start all defined agents in Docker containers (rebuilds images by default)')
+  .option('-c, --config <file>', 'Configuration file path', 'dank.config.js')
+  .option('-d, --detached', 'Run containers in detached mode')
+  .option('--no-build', 'Skip rebuilding Docker images (use existing images)')
+  .option('--pull', 'Pull latest base image before building')
+  .option('--parallel <number>', 'Number of agents to start in parallel', '3')
+  .action(runCommand);
+
+// Init command - initialize new project
+program
+  .command('init [name]')
+  .description('Initialize a new Dank agent project')
+  .option('-t, --template <template>', 'Project template to use', 'basic')
+  .option('--force', 'Overwrite existing files')
+  .action(initCommand);
+
+// Status command - show agent status
+program
+  .command('status')
+  .description('Show status of all agents')
+  .option('-w, --watch', 'Watch for status changes')
+  .option('--json', 'Output in JSON format')
+  .action(statusCommand);
+
+// Stop command - stop agents
+program
+  .command('stop [agents...]')
+  .description('Stop running agents')
+  .option('-a, --all', 'Stop all agents')
+  .option('-f, --force', 'Force stop (kill containers)')
+  .action(stopCommand);
+
+// Logs command - view agent logs
+program
+  .command('logs [agent]')
+  .description('View logs from agents')
+  .option('-f, --follow', 'Follow log output')
+  .option('-t, --tail <lines>', 'Number of lines to show from end of logs', '100')
+  .option('--since <timestamp>', 'Show logs since timestamp')
+  .action(logsCommand);
+
+// Build command - build Docker images
+program
+  .command('build')
+  .description('Build Docker images for agents')
+  .option('--base', 'Build only the base image')
+  .option('--force', 'Force rebuild without cache')
+  .action(async (options) => {
+    const { buildCommand } = require('../lib/cli/build');
+    await buildCommand(options);
+  });
+
+// Clean command - cleanup Docker resources
+program
+  .command('clean')
+  .description('Clean up Docker containers and images')
+  .option('--all', 'Remove all Dank-related Docker resources')
+  .option('--containers', 'Remove only containers')
+  .option('--images', 'Remove only images')
+  .action(async (options) => {
+    const { cleanCommand } = require('../lib/cli/clean');
+    await cleanCommand(options);
+  });
+
+// Global error handler
+program.exitOverride();
+
+try {
+  program.parse();
+} catch (err) {
+  if (err.code === 'commander.help') {
+    process.exit(0);
+  } else if (err.code === 'commander.version') {
+    process.exit(0);
+  } else {
+    console.error(chalk.red('❌ Error:'), err.message);
+    process.exit(1);
+  }
+}
+
+// Show help if no command provided
+if (!process.argv.slice(2).length) {
+  console.log(chalk.yellow('🚀 Dank Agent Service'));
+  console.log(chalk.gray('Docker-based AI agent orchestration platform\\n'));
+  program.outputHelp();
+  
+  console.log(chalk.cyan('\\nQuick Start:'));
+  console.log(chalk.gray('  dank init my-project    # Initialize new project'));
+  console.log(chalk.gray('  cd my-project'));
+  console.log(chalk.gray('  dank run                # Start all agents'));
+  console.log(chalk.gray('  dank status             # Check agent status'));
+  console.log(chalk.gray('  dank logs               # View agent logs'));
+}

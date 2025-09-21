@@ -1,0 +1,52 @@
+{
+  "name": "dank",
+  "version": "1.0.0",
+  "description": "Dank Agent Service - Docker-based AI agent orchestration platform",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./lib": "./lib/index.js",
+    "./lib/*": "./lib/*"
+  },
+  "bin": {
+    "dank": "./bin/dank"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo \"Build completed\"",
+    "dev": "node bin/dank",
+    "install-global": "npm install -g .",
+    "docker:build-base": "docker build -t dank-agent-base -f docker/Dockerfile.base ."
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "chalk": "^4.1.2",
+    "dockerode": "^4.0.0",
+    "js-yaml": "^4.1.0",
+    "joi": "^17.9.2",
+    "winston": "^3.10.0",
+    "fs-extra": "^11.1.1",
+    "tar": "^6.1.15",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["agent", "ai", "docker", "orchestration", "llm", "automation"],
+  "author": "",
+  "license": "ISC",
+  "files": [
+    "lib/",
+    "bin/",
+    "docker/",
+    "templates/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
