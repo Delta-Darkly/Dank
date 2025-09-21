@@ -1,7 +1,7 @@
 # Dank Agent Base Image
 # This is the base Docker image that all agents will extend
 
-FROM node:18-alpine
+FROM node:22-alpine
 
 # Install system dependencies
 RUN apk add --no-cache \

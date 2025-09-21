@@ -25,7 +25,7 @@ Before you begin, make sure you have:
 
 ### 1. Install Dank globally
 ```bash
-npm install -g dank
+npm install -g dank-ai
 ```
 
 ### 2. Initialize a new project
@@ -545,7 +545,7 @@ dank run --config example/dank.config.js
 cp example/dank.config.template.js ./dank.config.js
 
 # 2. Install dank as a dependency
-npm install dank
+npm install dank-ai
 
 # 3. The template already uses the correct import
 # const { createAgent } = require("dank");
@@ -639,7 +639,7 @@ Dank provides clear feedback during the process:
 #### 1. Project Setup
 ```bash
 # In your existing project directory
-npm install -g dank
+npm install -g dank-ai
 
 # Initialize Dank configuration
 dank init
@@ -1297,7 +1297,7 @@ curl http://localhost:3001/health
 
 ### Global Installation
 ```bash
-npm install -g dank
+npm install -g dank-ai
 ```
 
 ### Local Development
