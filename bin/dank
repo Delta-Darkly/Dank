@@ -75,6 +75,21 @@ program
     await buildCommand(options);
   });
 
+// Production build command - build and optionally push production images
+program
+  .command('build:prod')
+  .description('Build production Docker images with custom naming and tagging')
+  .option('-c, --config <file>', 'Configuration file path', 'dank.config.js')
+  .option('--push', 'Push images to registry after building')
+  .option('--tag <tag>', 'Custom tag for images (default: latest)')
+  .option('--registry <registry>', 'Docker registry URL (e.g., docker.io, ghcr.io)')
+  .option('--namespace <namespace>', 'Docker namespace/organization')
+  .option('--force', 'Force rebuild without cache')
+  .action(async (options) => {
+    const { productionBuildCommand } = require('../lib/cli/production-build');
+    await productionBuildCommand(options);
+  });
+
 // Clean command - cleanup Docker resources
 program
   .command('clean')

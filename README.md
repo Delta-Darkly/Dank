@@ -2,7 +2,7 @@
 
 **Docker-based AI Agent Orchestration Platform**
 
-Dank is a powerful Node.js service that allows you to define, deploy, and manage AI agents using Docker containers. Each agent runs in its own isolated environment with configurable resources, LLM providers, and custom handlers.
+Dank is a powerful Node.js service that allows you to define, deploy, and manage AI agents using Docker containers. Each agent runs in its own isolated environment with configurable resources, LLM providers, and custom handlers. Built for production with comprehensive CI/CD support and Docker registry integration.
 
 ## ✨ Features
 
@@ -12,6 +12,8 @@ Dank is a powerful Node.js service that allows you to define, deploy, and manage
 - **📊 Real-time Monitoring**: Built-in health checks and status monitoring
 - **🔧 Flexible Handlers**: Custom event handlers for agent outputs and errors
 - **🎯 CLI Interface**: Powerful command-line tools for agent management
+- **🏗️ Production Builds**: Build and push Docker images to registries with custom naming
+- **🔄 CI/CD Ready**: Seamless integration with GitHub Actions, GitLab CI, and other platforms
 
 ## 🚀 Quick Start
 
@@ -123,6 +125,18 @@ dank logs assistant
 dank logs assistant --follow
 ```
 
+### 8. Build for production (optional)
+```bash
+# Build production images with custom naming
+dank build:prod
+
+# Build and push to registry
+dank build:prod --push
+
+# Build with custom tag and registry
+dank build:prod --tag v1.0.0 --registry ghcr.io --namespace myorg --push
+```
+
 ## 📋 CLI Commands
 
 ### Core Commands
@@ -138,8 +152,20 @@ dank logs [agent]          # View agent logs
 ```bash
 dank init [name]           # Initialize new project
 dank build                 # Build Docker images
+dank build:prod            # Build agent images with custom naming
 dank clean                 # Clean up Docker resources
 ```
+
+### Agent Image Build Commands
+```bash
+dank build:prod                    # Build with agent image config
+dank build:prod --push             # Build and push to registry (CLI only)
+dank build:prod --tag v1.0.0       # Build with custom tag
+dank build:prod --registry ghcr.io # Build for specific registry
+dank build:prod --force            # Force rebuild without cache
+```
+
+> **💡 Push Control**: The `--push` option is the only way to push images to registries. Agent configuration defines naming, CLI controls pushing.
 
 ### Advanced Options
 ```bash
@@ -148,6 +174,15 @@ dank run --no-build        # Skip rebuilding images (default is to rebuild)
 dank run --pull            # Pull latest base image before building
 dank status --watch        # Live status monitoring
 dank logs --follow         # Follow log output
+```
+
+### Production Build Options
+```bash
+dank build:prod --push                    # Build and push to registry
+dank build:prod --tag v1.0.0             # Build with custom tag
+dank build:prod --registry ghcr.io       # Build for GitHub Container Registry
+dank build:prod --namespace mycompany    # Build with custom namespace
+dank build:prod --force                  # Force rebuild without cache
 ```
 
 ## 🤖 Agent Configuration
@@ -540,6 +575,333 @@ Configure container resources:
   maxRestarts: 3         // Max container restarts
 })
 ```
+
+### Agent Image Configuration
+
+Configure Docker image naming and registry settings for agent builds:
+
+```javascript
+// Complete agent image configuration
+.setAgentImageConfig({
+  registry: 'ghcr.io',           // Docker registry URL
+  namespace: 'mycompany',        // Organization/namespace
+  tag: 'v1.0.0'                 // Image tag
+})
+```
+
+#### 🏗️ **Agent Image Build Workflow**
+
+The agent image build feature allows you to create properly tagged Docker images for deployment to container registries. This is essential for:
+
+- **CI/CD Pipelines**: Automated builds and deployments
+- **Container Orchestration**: Kubernetes, Docker Swarm, etc.
+- **Multi-Environment Deployments**: Dev, staging, production
+- **Version Management**: Semantic versioning with tags
+
+> **📝 Note**: Image pushing is controlled exclusively by the CLI `--push` option. Agent configuration only defines image naming (registry, namespace, tag) - not push behavior.
+
+#### 📋 **Complete Agent Image Example**
+
+```javascript
+const { createAgent } = require('dank');
+
+module.exports = {
+  name: 'production-system',
+  
+  agents: [
+    // Production-ready customer service agent
+    createAgent('customer-service')
+      .setLLM('openai', {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: 'gpt-4',
+        temperature: 0.7
+      })
+      .setPrompt('You are a professional customer service representative.')
+      .setPromptingServer({
+        protocol: 'http',
+        port: 3000,
+        authentication: true,
+        maxConnections: 100
+      })
+      .setResources({
+        memory: '1g',
+        cpu: 2,
+        timeout: 60000
+      })
+      // Agent image configuration
+      .setAgentImageConfig({
+        registry: 'ghcr.io',
+        namespace: 'mycompany',
+        tag: 'v1.2.0'
+      })
+      .addHandler('request_output', (data) => {
+        // Log for production monitoring
+        console.log(`[${new Date().toISOString()}] Customer Service: ${data.response.substring(0, 100)}...`);
+      }),
+
+    // Data processing agent with different registry
+    createAgent('data-processor')
+      .setLLM('openai', {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: 'gpt-4',
+        temperature: 0.1
+      })
+      .setPrompt('You are a data analysis expert.')
+      .setPromptingServer({
+        protocol: 'http',
+        port: 3001,
+        authentication: false,
+        maxConnections: 50
+      })
+      .setResources({
+        memory: '2g',
+        cpu: 4,
+        timeout: 120000
+      })
+      // Different agent image configuration
+      .setAgentImageConfig({
+        registry: 'docker.io',
+        namespace: 'mycompany',
+        tag: 'latest'
+      })
+      .addHandler('request_output', (data) => {
+        console.log(`[Data Processor] Analysis completed: ${data.processingTime}ms`);
+      })
+  ]
+};
+```
+
+#### 🚀 **Production Build Commands**
+
+**Basic Production Build:**
+```bash
+# Build all agents with their image configuration
+dank build:prod
+
+# Build with custom configuration file
+dank build:prod --config production.config.js
+```
+
+**Registry and Tagging:**
+```bash
+# Build with custom tag
+dank build:prod --tag v2.1.0
+
+# Build for GitHub Container Registry
+dank build:prod --registry ghcr.io --namespace myorg
+
+# Build for Docker Hub
+dank build:prod --registry docker.io --namespace mycompany
+
+# Build for private registry
+dank build:prod --registry registry.company.com --namespace ai-agents
+```
+
+**Push and Force Rebuild:**
+```bash
+# Build and push to registry
+dank build:prod --push
+
+# Force rebuild without cache
+dank build:prod --force
+
+# Force rebuild and push
+dank build:prod --force --push
+
+# Build with custom tag and push
+dank build:prod --tag release-2024.1 --push
+```
+
+#### 🏷️ **Image Naming Convention**
+
+**With Agent Configuration:**
+- Format: `{registry}/{namespace}/{agent-name}:{tag}`
+- Example: `ghcr.io/mycompany/customer-service:v1.2.0`
+
+**With CLI Override:**
+- CLI options override agent configuration
+- Example: `dank build:prod --tag v2.0.0` overrides agent's tag
+
+**Without Configuration:**
+- Format: `{agent-name}:{tag}`
+- Example: `customer-service:latest`
+
+#### 🔧 **Registry Authentication**
+
+**Docker Hub:**
+```bash
+# Login to Docker Hub
+docker login
+
+# Build and push
+dank build:prod --registry docker.io --namespace myusername --push
+```
+
+**GitHub Container Registry:**
+```bash
+# Login to GHCR
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+
+# Build and push
+dank build:prod --registry ghcr.io --namespace myorg --push
+```
+
+**Private Registry:**
+```bash
+# Login to private registry
+docker login registry.company.com
+
+# Build and push
+dank build:prod --registry registry.company.com --namespace ai-agents --push
+```
+
+#### 📊 **Build Output Example**
+
+```bash
+$ dank build:prod --push
+
+🏗️  Building production Docker images...
+
+📦 Building production image for agent: customer-service
+info: Building production image for agent: customer-service -> ghcr.io/mycompany/customer-service:v1.2.0
+Step 1/3 : FROM deltadarkly/dank-agent-base:latest
+ ---> 7b560f235fe3
+Step 2/3 : COPY agent-code/ /app/agent-code/
+ ---> d766de6e95c4
+Step 3/3 : USER dankuser
+ ---> Running in c773e808270c
+Successfully built 43a664c636a2
+Successfully tagged ghcr.io/mycompany/customer-service:v1.2.0
+info: Production image 'ghcr.io/mycompany/customer-service:v1.2.0' built successfully
+info: Pushing image to registry: ghcr.io/mycompany/customer-service:v1.2.0
+info: Successfully pushed image: ghcr.io/mycompany/customer-service:v1.2.0
+✅ Successfully built: ghcr.io/mycompany/customer-service:v1.2.0
+🚀 Successfully pushed: ghcr.io/mycompany/customer-service:v1.2.0
+
+📊 Build Summary:
+================
+✅ Successful builds: 2
+🚀 Pushed to registry: 2
+
+📦 Built Images:
+  - ghcr.io/mycompany/customer-service:v1.2.0
+  - docker.io/mycompany/data-processor:latest
+
+🎉 Production build completed successfully!
+```
+
+#### 🔄 **CI/CD Integration**
+
+**GitHub Actions Example:**
+```yaml
+name: Build and Push Production Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install Dank
+        run: npm install -g dank-ai
+        
+      - name: Login to GHCR
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Build and Push Production Images
+        run: |
+          dank build:prod \
+            --registry ghcr.io \
+            --namespace ${{ github.repository_owner }} \
+            --tag ${{ github.ref_name }} \
+            --push
+```
+
+**GitLab CI Example:**
+```yaml
+build_production:
+  stage: build
+  image: node:18
+  before_script:
+    - npm install -g dank-ai
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - dank build:prod --registry $CI_REGISTRY --namespace $CI_PROJECT_NAMESPACE --tag $CI_COMMIT_TAG --push
+  only:
+    - tags
+```
+
+#### 🐳 **Docker Compose Integration**
+
+Use your production images in Docker Compose:
+
+```yaml
+version: '3.8'
+
+services:
+  customer-service:
+    image: ghcr.io/mycompany/customer-service:v1.2.0
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+
+  data-processor:
+    image: docker.io/mycompany/data-processor:latest
+    ports:
+      - "3001:3001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+```
+
+#### 🚨 **Troubleshooting Production Builds**
+
+**Common Issues:**
+
+1. **Registry Authentication:**
+   ```bash
+   # Error: authentication required
+   # Solution: Login to registry first
+   docker login ghcr.io
+   ```
+
+2. **Push Permissions:**
+   ```bash
+   # Error: denied: push access denied
+   # Solution: Check namespace permissions or use personal namespace
+   dank build:prod --namespace your-username --push
+   ```
+
+3. **Image Already Exists:**
+   ```bash
+   # Error: image already exists
+   # Solution: Use different tag or force rebuild
+   dank build:prod --tag v1.2.1 --push
+   ```
+
+4. **Build Context Issues:**
+   ```bash
+   # Error: build context too large
+   # Solution: Add .dockerignore file
+   echo "node_modules/" > .dockerignore
+   echo "*.log" >> .dockerignore
+   ```
 
 ## 🏗️ Project Structure
 
@@ -1306,7 +1668,7 @@ export NODE_ENV=production
 # 2. Build optimized images
 dank build --force
 
-# 3. Start with production config
+# 3. Start with image config
 dank run --detached
 
 # 4. Monitor and scale as needed
