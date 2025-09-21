@@ -90,9 +90,12 @@ module.exports = {
 };
 ```
 
-### 5. Build the base Docker image
+### 5. Build Docker images (optional)
 ```bash
-# First time setup - build the base image
+# Build agent images (base image is pulled automatically)
+dank build
+
+# Or build only the base image
 dank build --base
 ```
 
@@ -141,7 +144,8 @@ dank clean                 # Clean up Docker resources
 ### Advanced Options
 ```bash
 dank run --detached        # Run in background
-dank run --build           # Force rebuild images
+dank run --no-build        # Skip rebuilding images (default is to rebuild)
+dank run --pull            # Pull latest base image before building
 dank status --watch        # Live status monitoring
 dank logs --follow         # Follow log output
 ```
@@ -157,6 +161,12 @@ const agent = createAgent('my-agent')
     temperature: 0.8
   })
   .setPrompt('Your system prompt here')
+  .setPromptingServer({
+    protocol: 'http',
+    port: 3000,
+    authentication: false,
+    maxConnections: 50
+  })
   .setResources({
     memory: '1g',
     cpu: 2,
@@ -193,6 +203,23 @@ const agent = createAgent('my-agent')
 })
 ```
 
+#### Cohere
+```javascript
+.setLLM('cohere', {
+  apiKey: 'your-api-key',
+  model: 'command',
+  temperature: 0.7
+})
+```
+
+#### Hugging Face
+```javascript
+.setLLM('huggingface', {
+  apiKey: 'your-api-key',
+  model: 'microsoft/DialoGPT-medium'
+})
+```
+
 #### Custom Provider
 ```javascript
 .setLLM('custom', {
@@ -205,6 +232,11 @@ const agent = createAgent('my-agent')
 ### Event Handlers
 
 Dank provides a comprehensive event system with three main sources of events. Each event handler follows specific naming patterns for maximum flexibility and control.
+
+> **🆕 Auto-Detection**: Dank automatically enables communication features based on your usage:
+> - **Event Handlers**: Auto-enabled when you add `.addHandler()` calls
+> - **Direct Prompting**: Auto-enabled when you use `.setPrompt()` + `.setLLM()`
+> - **HTTP API**: Auto-enabled when you add routes with `.get()`, `.post()`, etc.
 
 #### 🎯 **Event Handler Patterns**
 
@@ -470,19 +502,29 @@ Each communication method can be enabled/disabled independently:
 
 ```javascript
 createAgent('flexible-agent')
-  // Enable only direct prompting
-  .enableDirectPrompting({ protocol: 'websocket' })
-  .disableHttpApi()
-  .enableEventHandlers()
+  // Configure direct prompting with specific settings
+  .setPromptingServer({ 
+    protocol: 'websocket',
+    port: 3000,
+    authentication: false,
+    maxConnections: 50
+  })
+  .disableDirectPrompting() // Disable if needed
+  
+  // Enable HTTP API
+  .enableHttp({ port: 3001 })
   
   // Listen to direct prompting events only
   .addHandler('request_output', (data) => {
     console.log('WebSocket response:', data.response);
   })
   
-  // HTTP events won't fire since HTTP is disabled
+  // HTTP events will fire when routes are added
+  .get('/api/status', (req, res) => {
+    res.json({ status: 'ok' });
+  })
   .addHandler('tool:http-server:*', (data) => {
-    console.log('This will never execute');
+    console.log('HTTP activity:', data);
   });
 ```
 
@@ -520,7 +562,6 @@ const {
   createAgent,     // Convenience function to create agents
   DankAgent,       // Main agent class
   DankProject,     // Project management class
-  AgentConfig,     // Configuration utilities
   SUPPORTED_LLMS,  // List of supported LLM providers
   DEFAULT_CONFIG   // Default configuration values
 } = require("dank");
@@ -558,8 +599,8 @@ dank run
 
 Dank uses a layered Docker approach:
 
-1. **Base Image** (`dank-agent-base`): Common runtime with Node.js, LLM clients
-2. **Agent Images**: Extend base image with agent-specific code
+1. **Base Image** (`deltadarkly/dank-agent-base`): Common runtime with Node.js, LLM clients
+2. **Agent Images**: Extend base image with agent-specific code and custom tags
 3. **Containers**: Running instances with resource limits and networking
 
 ### Container Features
@@ -1032,8 +1073,8 @@ echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
 
 **3. Base Image Not Found**
 ```bash
-# Error: Base image 'dank-agent-base' not found
-# Solution: Build the base image first
+# Error: Base image 'deltadarkly/dank-agent-base' not found
+# Solution: The base image is pulled automatically, but you can build it manually
 dank build --base
 ```
 
@@ -1263,7 +1304,7 @@ docker stats dank-test-agent
 export NODE_ENV=production
 
 # 2. Build optimized images
-dank build --base --force
+dank build --force
 
 # 3. Start with production config
 dank run --detached
