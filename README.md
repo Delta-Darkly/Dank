@@ -1,8 +1,15 @@
+<div align="center">
+  <img src="assets/danklarge.png" alt="Dank Logo" width="400">
+</div>
+
 # 🚀 Dank Agent Service
 
 **Docker-based AI Agent Orchestration Platform**
 
 Dank is a powerful Node.js service that allows you to define, deploy, and manage AI agents using Docker containers. Each agent runs in its own isolated environment with configurable resources, LLM providers, and custom handlers. Built for production with comprehensive CI/CD support and Docker registry integration.
+
+🌐 **Website**: [https://dank-ai.xyz](https://dank-ai.xyz)  
+📦 **NPM Package**: [https://www.npmjs.com/package/dank-ai](https://www.npmjs.com/package/dank-ai)
 
 ## ✨ Features
 
@@ -96,10 +103,6 @@ module.exports = {
 ```bash
 # Build agent images (base image is pulled automatically)
 dank build
-
-# Or build only the base image
-dank build --base
-```
 
 ### 6. Start your agents
 ```bash
