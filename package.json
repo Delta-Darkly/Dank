@@ -1,6 +1,6 @@
 {
   "name": "dank-ai",
-  "version": "1.0.11",
+  "version": "1.0.20",
   "description": "Dank Agent Service - Docker-based AI agent orchestration platform",
   "main": "lib/index.js",
   "exports": {
@@ -19,6 +19,7 @@
     "docker:build-base": "docker build -t dank-agent-base -f docker/Dockerfile.base ."
   },
   "dependencies": {
+    "axios": "^1.7.9",
     "commander": "^11.0.0",
     "chalk": "^4.1.2",
     "dockerode": "^4.0.0",

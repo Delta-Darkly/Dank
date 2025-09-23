@@ -14,7 +14,7 @@
  * and install dank via npm, then update the require statement.
  */
 
-const { createAgent } = require("dank");
+const { createAgent } = require("../lib/index.js");
 module.exports = {
   // Project configuration
   name: "test-project",
