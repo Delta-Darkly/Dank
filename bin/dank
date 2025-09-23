@@ -14,11 +14,16 @@ const { initCommand } = require('../lib/cli/init');
 const { statusCommand } = require('../lib/cli/status');
 const { stopCommand } = require('../lib/cli/stop');
 const { logsCommand } = require('../lib/cli/logs');
+const analytics = require('../lib/analytics');
 
 program
   .name('dank')
   .description('🚀 Dank Agent Service - Docker-based AI agent orchestration')
   .version(pkg.version);
+
+// Track CLI usage and install
+analytics.trackCLIUsage();
+analytics.trackInstall();
 
 // Run command - main orchestration command
 program
