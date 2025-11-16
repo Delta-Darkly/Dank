@@ -2,7 +2,7 @@
 
 /**
  * Dank Agent Container Entrypoint
- *
+ * 
  * This script runs inside each agent container and handles:
  * - Loading agent code from the drop-off directory
  * - Setting up the LLM client
@@ -15,6 +15,10 @@ const path = require("path");
 const express = require("express");
 const winston = require("winston");
 const { v4: uuidv4 } = require("uuid");
+const os = require("os");
+const { EventEmitter } = require("events");
+const http = require("http");
+const { WebSocketServer } = require("ws");
 
 // Load environment variables
 require("dotenv").config();
@@ -37,6 +41,148 @@ const logger = winston.createLogger({
   ],
 });
 
+/**
+ * Log Buffer Service - Captures and stores stdout/stderr logs in memory
+ */
+class LogBufferService extends EventEmitter {
+  constructor(options = {}) {
+    super();
+    this.maxSize = options.maxSize || 10000; // Max 10k log entries
+    this.maxAge = options.maxAge || 24 * 60 * 60 * 1000; // 24 hours
+    this.logs = []; // Circular buffer
+    this.isCapturing = false;
+    this.originalStdoutWrite = null;
+    this.originalStderrWrite = null;
+  }
+
+  /**
+   * Start capturing stdout/stderr from main process
+   */
+  start() {
+    if (this.isCapturing) return;
+
+    // Capture stdout
+    this.originalStdoutWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = (chunk, encoding, callback) => {
+      this.addLog('stdout', chunk.toString());
+      return this.originalStdoutWrite(chunk, encoding, callback);
+    };
+
+    // Capture stderr
+    this.originalStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = (chunk, encoding, callback) => {
+      this.addLog('stderr', chunk.toString());
+      return this.originalStderrWrite(chunk, encoding, callback);
+    };
+
+    this.isCapturing = true;
+    logger.info('✅ Log buffer service started');
+  }
+
+  /**
+   * Add log entry to buffer
+   */
+  addLog(stream, message) {
+    const now = Date.now();
+    const entry = {
+      timestamp: now,
+      stream, // 'stdout' or 'stderr'
+      message: message.trim(),
+    };
+
+    // Add to buffer
+    this.logs.push(entry);
+
+    // Trim to max size (circular buffer)
+    if (this.logs.length > this.maxSize) {
+      this.logs.shift(); // Remove oldest
+    }
+
+    // Emit for real-time streaming (if needed in future)
+    this.emit('log', entry);
+
+    // Cleanup old logs periodically
+    if (this.logs.length % 100 === 0) {
+      this.cleanup();
+    }
+  }
+
+  /**
+   * Remove logs older than maxAge
+   */
+  cleanup() {
+    const now = Date.now();
+    const cutoff = now - this.maxAge;
+    
+    // Remove old logs
+    while (this.logs.length > 0 && this.logs[0].timestamp < cutoff) {
+      this.logs.shift();
+    }
+  }
+
+  /**
+   * Get logs with filters
+   */
+  getLogs(options = {}) {
+    const {
+      startTime = null,
+      endTime = null,
+      limit = 100,
+      offset = 0,
+      stream = null, // 'stdout', 'stderr', or null for both
+    } = options;
+
+    let filtered = [...this.logs];
+
+    // Filter by time range
+    if (startTime) {
+      filtered = filtered.filter(log => log.timestamp >= startTime);
+    }
+    if (endTime) {
+      filtered = filtered.filter(log => log.timestamp <= endTime);
+    }
+
+    // Filter by stream
+    if (stream) {
+      filtered = filtered.filter(log => log.stream === stream);
+    }
+
+    // Sort by timestamp (oldest first)
+    filtered.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Pagination
+    const total = filtered.length;
+    const paginated = filtered.slice(offset, offset + limit);
+
+    return {
+      logs: paginated,
+      total,
+      limit,
+      offset,
+      hasMore: offset + limit < total,
+    };
+  }
+
+  /**
+   * Get logs from time range (e.g., "last 10 minutes")
+   */
+  getLogsByTimeRange(startTime, endTime) {
+    return this.getLogs({
+      startTime,
+      endTime,
+      limit: 10000, // Get all in range
+    });
+  }
+
+  /**
+   * Clear all logs
+   */
+  clear() {
+    this.logs = [];
+    this.emit('clear');
+  }
+}
+
 class AgentRuntime {
   constructor() {
     this.agentName = process.env.AGENT_NAME || "unknown";
@@ -45,23 +191,47 @@ class AgentRuntime {
     this.llmModel = process.env.LLM_MODEL || "gpt-3.5-turbo";
     this.agentPrompt =
       process.env.AGENT_PROMPT || "You are a helpful AI assistant.";
-
+    
     this.llmClient = null;
     this.agentCode = null;
     this.handlers = new Map();
     this.isRunning = false;
     this.startTime = new Date();
+    
+    // CPU usage tracking for metrics endpoint
+    // Track cumulative CPU usage since startup
+    this.cpuUsageStart = process.cpuUsage();
+    this.cpuUsageStartTime = process.hrtime.bigint();
 
+    // Initialize log buffer service
+    this.logBuffer = new LogBufferService({
+      maxSize: 10000, // 10k log entries
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    });
+    
     // HTTP server configuration
     this.httpEnabled = process.env.HTTP_ENABLED === "true";
     this.httpPort = parseInt(process.env.HTTP_PORT) || 3000;
     this.httpHost = process.env.HTTP_HOST || "0.0.0.0";
+    
+    // Main agent port (used for health, prompting, and optionally HTTP API)
+    this.mainPort = parseInt(process.env.DOCKER_PORT) || 3000;
+    logger.info(`🔌 Main agent port configured: ${this.mainPort} (from DOCKER_PORT: ${process.env.DOCKER_PORT || 'default'})`);
 
-    // Setup express servers
-    this.healthApp = express(); // Health check server (always running)
-    this.httpApp = null; // Main HTTP server (optional)
+    // Single Express app for health, prompting, and HTTP API
+    this.mainApp = express();
+    this.mainApp.use(express.json({ limit: "10mb" }));
+    this.mainApp.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+    // HTTP server and WebSocket server (for log streaming)
+    this.httpServer = null;
+    this.wss = null;
+
+    // Setup health endpoints on main app
     this.setupHealthEndpoints();
+    
+    // Setup log endpoints on main app
+    this.setupLogEndpoints();
   }
 
   /**
@@ -71,32 +241,42 @@ class AgentRuntime {
     try {
       logger.info(`Initializing agent: ${this.agentName} (${this.agentId})`);
 
+      // Start log buffer service to capture logs
+      this.logBuffer.start();
+      
       // Load agent code
       await this.loadAgentCode();
-
+      
       // Initialize LLM client
       await this.initializeLLM();
-
+      
       // Setup agent handlers
       await this.setupHandlers();
-
-      // Start health check server
-      this.startHealthServer();
-
-      // Start HTTP server if enabled
+      
+      // Setup HTTP middleware (CORS, rate limiting) if HTTP is enabled
+      // This must be done BEFORE routes are added
       if (this.httpEnabled) {
-        await this.setupHttpServer();
-        this.startHttpServer();
+        await this.setupHttpMiddleware();
       }
 
-      // Setup direct prompting server
+      // Setup user routes on main app (if any routes exist in agent code)
+      // Routes are always added to the main app (same server as health and prompting)
+      await this.setupAgentRoutes();
+
+      // Setup direct prompting server (adds /prompt endpoint to main app)
       await this.setupDirectPromptingServer();
 
+      // Set up 404 and error handlers AFTER all routes (including /prompt) are registered
+      this.setupDefaultRoutes();
+
+      // Start the main server (handles health, prompting, and user routes)
+      this.startMainServer();
+      
       // Mark as running
       this.isRunning = true;
-
+      
       logger.info(`Agent ${this.agentName} initialized successfully`);
-
+      
       // Execute agent main function if it exists
       if (this.agentCode && typeof this.agentCode.main === "function") {
         // Create agent context with tools and capabilities
@@ -110,12 +290,12 @@ class AgentRuntime {
             prompt: this.agentPrompt,
           },
         };
-
+        
         // Execute main function without awaiting to prevent blocking
         // This allows the agent to run asynchronously while keeping the container alive
         this.executeAgentMain(agentContext);
       }
-
+      
       // Keep the container alive - this is essential for agent runtime
       this.keepAlive();
     } catch (error) {
@@ -130,10 +310,10 @@ class AgentRuntime {
   async executeAgentMain(agentContext) {
     try {
       logger.info("Executing agent main function...");
-
+      
       // Call the main function and handle different return patterns
       const result = this.agentCode.main(agentContext);
-
+      
       // If it returns a promise, handle it properly
       if (result && typeof result.then === "function") {
         result.catch((error) => {
@@ -148,7 +328,7 @@ class AgentRuntime {
           });
         });
       }
-
+      
       logger.info("Agent main function started successfully");
     } catch (error) {
       logger.error("Failed to execute agent main function:", error);
@@ -168,17 +348,11 @@ class AgentRuntime {
    */
   keepAlive() {
     logger.info("Starting keep-alive mechanism...");
-
+    
     // Set up a heartbeat interval to keep the container running
     this.heartbeatInterval = setInterval(() => {
       if (this.isRunning) {
-        logger.debug(
-          `Agent ${this.agentName} heartbeat - uptime: ${Math.floor(
-            process.uptime()
-          )}s`
-        );
-
-        // Trigger heartbeat handlers
+        // Trigger heartbeat handlers (user-defined handlers only, no default logging)
         const heartbeatHandlers = this.handlers.get("heartbeat") || [];
         heartbeatHandlers.forEach((handler) => {
           try {
@@ -189,14 +363,14 @@ class AgentRuntime {
         });
       }
     }, 30000); // Heartbeat every 30 seconds
-
+    
     // Also set up a simple keep-alive mechanism
     // This ensures the event loop stays active
     this.keepAliveTimeout = setTimeout(() => {
       // This timeout will never fire, but keeps the event loop active
       logger.debug("Keep-alive timeout triggered (this should not happen)");
     }, 2147483647); // Maximum timeout value
-
+    
     logger.info("Keep-alive mechanism started - container will stay running");
   }
 
@@ -206,7 +380,7 @@ class AgentRuntime {
   async loadAgentCode() {
     const codeDir = "/app/agent-code";
     const mainFile = path.join(codeDir, "index.js");
-
+    
     if (fs.existsSync(mainFile)) {
       logger.info("Loading agent code from index.js");
       this.agentCode = require(mainFile);
@@ -218,7 +392,7 @@ class AgentRuntime {
           logger.info(
             "Basic mode agent is ready and will respond to HTTP requests if enabled"
           );
-
+          
           // In basic mode, the agent just stays alive and responds to HTTP requests
           // The keep-alive mechanism will handle keeping the container running
           return Promise.resolve();
@@ -293,22 +467,21 @@ class AgentRuntime {
       (error) => logger.error("Agent error:", error),
     ]);
 
-    this.handlers.set("heartbeat", [
-      () => logger.debug(`Agent ${this.agentName} heartbeat`),
-    ]);
+    // No default heartbeat handler - users can add their own if needed
+    this.handlers.set("heartbeat", []);
 
     // Load custom handlers from agent code
     if (this.agentCode && this.agentCode.handlers) {
       Object.entries(this.agentCode.handlers).forEach(
         ([event, handlerList]) => {
-          if (!this.handlers.has(event)) {
-            this.handlers.set(event, []);
-          }
-
+        if (!this.handlers.has(event)) {
+          this.handlers.set(event, []);
+        }
+        
           const handlers = Array.isArray(handlerList)
             ? handlerList
             : [handlerList];
-          this.handlers.get(event).push(...handlers);
+        this.handlers.get(event).push(...handlers);
         }
       );
     }
@@ -418,10 +591,10 @@ class AgentRuntime {
   }
 
   /**
-   * Setup health check endpoints
+   * Setup health check endpoints on main app
    */
   setupHealthEndpoints() {
-    this.healthApp.get("/health", (req, res) => {
+    this.mainApp.get("/health", (req, res) => {
       res.json({
         status: this.isRunning ? "healthy" : "starting",
         agent: {
@@ -439,7 +612,7 @@ class AgentRuntime {
       });
     });
 
-    this.healthApp.get("/status", (req, res) => {
+    this.mainApp.get("/status", (req, res) => {
       res.json({
         agent: {
           name: this.agentName,
@@ -456,7 +629,7 @@ class AgentRuntime {
         http: {
           enabled: this.httpEnabled,
           port: this.httpEnabled ? this.httpPort : null,
-          routes: this.httpEnabled && this.httpApp ? this.getRoutesList() : [],
+          endpoints: this.mainApp ? this.getRoutesList() : { builtin: [], userDefined: [], all: [] },
         },
         handlers: Array.from(this.handlers.keys()),
         environment: {
@@ -466,25 +639,242 @@ class AgentRuntime {
         },
       });
     });
+
+    this.mainApp.get("/metrics", async (req, res) => {
+      const memUsage = process.memoryUsage();
+      
+      // Take a delta measurement for accurate CPU percentage
+      // Measure CPU usage over a period (500ms for better accuracy)
+      const measurementStart = process.cpuUsage();
+      const measurementStartTime = process.hrtime.bigint(); // High-resolution time in nanoseconds
+      
+      // Wait a period to measure CPU delta (longer period = more accurate)
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const measurementEnd = process.cpuUsage(measurementStart);
+      const measurementEndTime = process.hrtime.bigint();
+      
+      // Calculate elapsed time in milliseconds (hrtime is in nanoseconds)
+      const measurementDeltaNs = Number(measurementEndTime - measurementStartTime);
+      const measurementDeltaMs = measurementDeltaNs / 1000000; // Convert nanoseconds to milliseconds
+      
+      // Calculate CPU percentage from delta
+      // cpuUsage.user and cpuUsage.system are in microseconds
+      const totalCpuTimeMicroseconds = measurementEnd.user + measurementEnd.system;
+      const totalCpuTimeMilliseconds = totalCpuTimeMicroseconds / 1000;
+      
+      // CPU percentage = (CPU time used / elapsed time) * 100
+      // This gives us the percentage of one CPU core used
+      // For multi-core systems, values can exceed 100% if using multiple cores
+      const cpuPercent = measurementDeltaMs > 0 
+        ? (totalCpuTimeMilliseconds / measurementDeltaMs) * 100
+        : 0;
+      
+      // Calculate cumulative CPU usage since startup
+      const cumulativeCpuUsage = process.cpuUsage(this.cpuUsageStart);
+      const cumulativeCpuTimeMicroseconds = cumulativeCpuUsage.user + cumulativeCpuUsage.system;
+      const cumulativeCpuTimeMilliseconds = cumulativeCpuTimeMicroseconds / 1000;
+      const cumulativeTimeMs = Number(process.hrtime.bigint() - this.cpuUsageStartTime) / 1000000;
+      const cumulativeCpuPercent = cumulativeTimeMs > 0
+        ? (cumulativeCpuTimeMilliseconds / cumulativeTimeMs) * 100
+        : 0;
+      
+      // Get system memory info
+      const totalMemory = os.totalmem();
+      const freeMemory = os.freemem();
+      const usedMemory = totalMemory - freeMemory;
+      
+      res.json({
+        timestamp: new Date().toISOString(),
+        agent: {
+          name: this.agentName,
+          id: this.agentId,
+          uptime: Date.now() - this.startTime.getTime(),
+        },
+        cpu: {
+          current: {
+            user: measurementEnd.user, // microseconds (delta over measurement period)
+            system: measurementEnd.system, // microseconds (delta over measurement period)
+            total: totalCpuTimeMilliseconds, // milliseconds (delta over measurement period)
+            percent: parseFloat(cpuPercent.toFixed(2)), // percentage over measurement period
+            measurementPeriod: measurementDeltaMs, // milliseconds
+          },
+          cumulative: {
+            user: cumulativeCpuUsage.user, // microseconds (since startup)
+            system: cumulativeCpuUsage.system, // microseconds (since startup)
+            total: cumulativeCpuTimeMilliseconds, // milliseconds (since startup)
+            percent: parseFloat(cumulativeCpuPercent.toFixed(2)), // average percentage since startup
+            uptime: cumulativeTimeMs, // milliseconds since startup
+          },
+          cores: os.cpus().length,
+          model: os.cpus()[0]?.model || "unknown",
+        },
+        memory: {
+          process: {
+            rss: memUsage.rss, // Resident Set Size - total memory allocated
+            heapTotal: memUsage.heapTotal, // Total heap memory allocated
+            heapUsed: memUsage.heapUsed, // Heap memory used
+            external: memUsage.external, // Memory used by C++ objects bound to JS objects
+            arrayBuffers: memUsage.arrayBuffers, // Memory allocated for ArrayBuffers
+          },
+          system: {
+            total: totalMemory, // Total system memory
+            free: freeMemory, // Free system memory
+            used: usedMemory, // Used system memory
+            percent: ((usedMemory / totalMemory) * 100).toFixed(2), // Percentage used
+          },
+          // Human-readable formats
+          processFormatted: {
+            rss: `${(memUsage.rss / 1024 / 1024).toFixed(2)} MB`,
+            heapTotal: `${(memUsage.heapTotal / 1024 / 1024).toFixed(2)} MB`,
+            heapUsed: `${(memUsage.heapUsed / 1024 / 1024).toFixed(2)} MB`,
+            external: `${(memUsage.external / 1024 / 1024).toFixed(2)} MB`,
+          },
+          systemFormatted: {
+            total: `${(totalMemory / 1024 / 1024 / 1024).toFixed(2)} GB`,
+            free: `${(freeMemory / 1024 / 1024 / 1024).toFixed(2)} GB`,
+            used: `${(usedMemory / 1024 / 1024 / 1024).toFixed(2)} GB`,
+          },
+        },
+        loadAverage: os.loadavg(), // 1, 5, and 15 minute load averages
+      });
+    });
   }
 
   /**
-   * Setup HTTP server with Express.js
+   * Setup log endpoints on main app
    */
-  async setupHttpServer() {
-    if (!this.httpEnabled) return;
+  setupLogEndpoints() {
+    /**
+     * GET /logs
+     * Get historical logs with pagination and time filtering
+     * 
+     * Query params:
+     * - startTime: Unix timestamp (ms) - start of time range
+     * - endTime: Unix timestamp (ms) - end of time range
+     * - limit: Number of logs per page (default: 100)
+     * - offset: Pagination offset (default: 0)
+     * - stream: 'stdout' | 'stderr' | null (default: both)
+     */
+    this.mainApp.get("/logs", (req, res) => {
+      try {
+        const {
+          startTime,
+          endTime,
+          limit = 100,
+          offset = 0,
+          stream,
+        } = req.query;
 
-    logger.info(`Setting up HTTP server on port ${this.httpPort}`);
+        const options = {
+          startTime: startTime ? parseInt(startTime) : null,
+          endTime: endTime ? parseInt(endTime) : null,
+          limit: parseInt(limit),
+          offset: parseInt(offset),
+          stream: stream || null,
+        };
 
-    this.httpApp = express();
+        const result = this.logBuffer.getLogs(options);
 
-    // Basic middleware
-    this.httpApp.use(express.json({ limit: "10mb" }));
-    this.httpApp.use(express.urlencoded({ extended: true, limit: "10mb" }));
+        res.json({
+          success: true,
+          data: result,
+        });
+      } catch (error) {
+        logger.error('Error getting logs:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to get logs',
+          message: error.message,
+        });
+      }
+    });
+
+    /**
+     * GET /logs/range
+     * Get logs from specific time range (convenience endpoint)
+     * 
+     * Query params:
+     * - minutesAgo: Number of minutes to look back (default: 10)
+     * - stream: 'stdout' | 'stderr' | null
+     */
+    this.mainApp.get("/logs/range", (req, res) => {
+      try {
+        const { minutesAgo = 10, stream } = req.query;
+        const endTime = Date.now();
+        const startTime = endTime - (parseInt(minutesAgo) * 60 * 1000);
+
+        const result = this.logBuffer.getLogsByTimeRange(startTime, endTime);
+
+        // Filter by stream if specified
+        let logs = result.logs;
+        if (stream) {
+          logs = logs.filter(log => log.stream === stream);
+        }
+
+        res.json({
+          success: true,
+          data: {
+            logs,
+            count: logs.length,
+            startTime,
+            endTime,
+          },
+        });
+      } catch (error) {
+        logger.error('Error getting logs by range:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to get logs',
+          message: error.message,
+        });
+      }
+    });
+
+    /**
+     * GET /logs/stats
+     * Get log statistics
+     */
+    this.mainApp.get("/logs/stats", (req, res) => {
+      try {
+        const allLogs = this.logBuffer.getLogs({ limit: 10000 });
+        
+        const stats = {
+          total: allLogs.total,
+          oldest: allLogs.logs[0]?.timestamp || null,
+          newest: allLogs.logs[allLogs.logs.length - 1]?.timestamp || null,
+          stdout: allLogs.logs.filter(l => l.stream === 'stdout').length,
+          stderr: allLogs.logs.filter(l => l.stream === 'stderr').length,
+          bufferSize: this.logBuffer.logs.length,
+          maxSize: this.logBuffer.maxSize,
+          maxAge: this.logBuffer.maxAge,
+        };
+
+        res.json({
+          success: true,
+          data: stats,
+        });
+      } catch (error) {
+        logger.error('Error getting log stats:', error);
+        res.status(500).json({
+          success: false,
+          error: 'Failed to get log stats',
+          message: error.message,
+        });
+      }
+    });
+  }
+
+  /**
+   * Setup HTTP middleware (CORS, rate limiting) on main app
+   * This is only called if HTTP is explicitly enabled via configuration
+   */
+  async setupHttpMiddleware() {
+    logger.info(`Setting up HTTP middleware on main server`);
 
     // CORS if enabled
     if (process.env.HTTP_CORS !== "false") {
-      this.httpApp.use((req, res, next) => {
+      this.mainApp.use((req, res, next) => {
         res.header("Access-Control-Allow-Origin", "*");
         res.header(
           "Access-Control-Allow-Methods",
@@ -512,14 +902,60 @@ class AgentRuntime {
         max: parseInt(process.env.HTTP_RATE_LIMIT_MAX) || 100,
         message: process.env.HTTP_RATE_LIMIT_MESSAGE || "Too many requests",
       });
-      this.httpApp.use(limiter);
+      this.mainApp.use(limiter);
+    }
+  }
+
+  /**
+   * Setup routes defined in agent configuration
+   * Routes are always added to the main app (same server as health and prompting)
+   * NOTE: Does NOT set up 404 handler - that must be done AFTER all routes including /prompt
+   */
+  async setupAgentRoutes() {
+    if (!this.agentCode || !this.agentCode.routes) {
+      // Set up default root route only (404 handler will be set up later)
+      this.mainApp.get("/", (req, res) => {
+      res.json({
+        message: `🤖 ${this.agentName} HTTP Server`,
+        agent: this.agentName,
+          version: "1.0.0",
+        endpoints: this.getRoutesList(),
+          timestamp: new Date().toISOString(),
+      });
+    });
+      return;
     }
 
-    // Setup routes from agent configuration
-    await this.setupAgentRoutes();
+    logger.info(`Setting up user routes on main server`);
 
-    // Default routes
-    this.httpApp.get("/", (req, res) => {
+    // Setup routes from agent code
+    Object.entries(this.agentCode.routes).forEach(([path, handlers]) => {
+      if (typeof handlers === "object") {
+        Object.entries(handlers).forEach(([method, handler]) => {
+          if (typeof handler === "function") {
+            const lowerMethod = method.toLowerCase();
+            if (this.mainApp[lowerMethod]) {
+              // Register route handler directly on main app
+              this.mainApp[lowerMethod](path, handler);
+              logger.info(`Registered route: ${method.toUpperCase()} ${path}`);
+            }
+          }
+        });
+      }
+    });
+
+    // Setup middleware from agent code
+    if (this.agentCode.middleware && Array.isArray(this.agentCode.middleware)) {
+      this.agentCode.middleware.forEach((middleware) => {
+        if (typeof middleware === "function") {
+          this.mainApp.use(middleware);
+          logger.info("Registered custom middleware");
+        }
+      });
+    }
+
+    // Set up default root route (404 handler will be set up later, after /prompt)
+    this.mainApp.get("/", (req, res) => {
       res.json({
         message: `🤖 ${this.agentName} HTTP Server`,
         agent: this.agentName,
@@ -528,18 +964,24 @@ class AgentRuntime {
         timestamp: new Date().toISOString(),
       });
     });
+  }
 
-    // 404 handler
-    this.httpApp.use((req, res) => {
+  /**
+   * Setup 404 and error handlers on main app
+   * MUST be called AFTER all routes (including /prompt) are registered
+   */
+  setupDefaultRoutes() {
+    // 404 handler (must be after ALL routes, including /prompt)
+    this.mainApp.use((req, res) => {
       res.status(404).json({
         error: "Not Found",
         message: `Cannot ${req.method} ${req.path}`,
-        availableRoutes: this.getRoutesList(),
+        availableEndpoints: this.getRoutesList(),
       });
     });
 
-    // Error handler
-    this.httpApp.use((err, req, res, next) => {
+    // Error handler (must be last)
+    this.mainApp.use((err, req, res, next) => {
       logger.error("HTTP server error:", err);
       res.status(500).json({
         error: "Internal Server Error",
@@ -552,225 +994,204 @@ class AgentRuntime {
   }
 
   /**
-   * Setup routes defined in agent configuration
-   */
-  async setupAgentRoutes() {
-    if (!this.agentCode || !this.agentCode.routes) return;
-
-    // Setup routes from agent code
-    Object.entries(this.agentCode.routes).forEach(([path, handlers]) => {
-      if (typeof handlers === "object") {
-        Object.entries(handlers).forEach(([method, handler]) => {
-          if (typeof handler === "function") {
-            const lowerMethod = method.toLowerCase();
-            if (this.httpApp[lowerMethod]) {
-              // Wrap handler to emit tool events
-              const wrappedHandler = this.wrapHttpHandlerWithEvents(
-                method,
-                path,
-                handler
-              );
-              this.httpApp[lowerMethod](path, wrappedHandler);
-              logger.info(`Registered route: ${method.toUpperCase()} ${path}`);
-            }
-          }
-        });
-      }
-    });
-
-    // Setup middleware from agent code
-    if (this.agentCode.middleware && Array.isArray(this.agentCode.middleware)) {
-      this.agentCode.middleware.forEach((middleware) => {
-        if (typeof middleware === "function") {
-          this.httpApp.use(middleware);
-          logger.info("Registered custom middleware");
-        }
-      });
-    }
-  }
-
-  /**
-   * Get list of registered routes
+   * Get list of registered routes, categorized as built-in or user-defined
    */
   getRoutesList() {
-    if (!this.httpApp) return [];
-
-    const routes = [];
-    this.httpApp._router.stack.forEach((middleware) => {
+    if (!this.mainApp) return { builtin: [], userDefined: [], all: [] };
+    
+    // List of built-in endpoints
+    const builtInPaths = [
+      '/health',
+      '/status',
+      '/metrics',
+      '/logs',
+      '/logs/range',
+      '/logs/stats',
+      '/prompt',
+      '/'
+    ];
+    
+    const builtin = [];
+    const userDefined = [];
+    
+    // Add WebSocket endpoint manually (it won't appear in router stack)
+    if (this.wss) {
+      builtin.push({
+        path: '/logs/stream',
+        methods: ['WS'],
+        type: 'websocket'
+      });
+    }
+    
+    this.mainApp._router.stack.forEach((middleware) => {
       if (middleware.route) {
-        const methods = Object.keys(middleware.route.methods);
-        routes.push({
-          path: middleware.route.path,
-          methods: methods.map((m) => m.toUpperCase()),
-        });
+        const path = middleware.route.path;
+        const methods = Object.keys(middleware.route.methods).map((m) => m.toUpperCase());
+        const routeInfo = {
+          path: path,
+          methods: methods,
+          type: 'http'
+        };
+        
+        // Check if it's a built-in endpoint
+        if (builtInPaths.includes(path)) {
+          builtin.push(routeInfo);
+        } else {
+          userDefined.push(routeInfo);
+        }
       }
     });
-
-    return routes;
+    
+    return {
+      builtin: builtin,
+      userDefined: userDefined,
+      all: [...builtin, ...userDefined]
+    };
   }
 
   /**
-   * Start health check server
+   * Setup WebSocket server for log streaming on /logs/stream
    */
-  startHealthServer() {
-    const port = process.env.HEALTH_PORT || 3001;
+  setupLogStreaming() {
+    if (!this.httpServer) {
+      logger.warn('HTTP server not initialized, cannot setup WebSocket');
+      return;
+    }
 
-    this.healthApp.listen(port, "0.0.0.0", () => {
-      logger.info(`Health server listening on port ${port}`);
+    this.wss = new WebSocketServer({
+      server: this.httpServer,
+      path: '/logs/stream',
+    });
+
+    this.wss.on('connection', (ws, req) => {
+      logger.info('📡 Log stream WebSocket connected');
+
+      // Send recent logs immediately (last 100)
+      const recentLogs = this.logBuffer.getLogs({ limit: 100 });
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'initial',
+          data: recentLogs.logs,
+        }));
+      }
+
+      // Listen for new logs
+      const onLog = (logEntry) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'log',
+            data: logEntry,
+          }));
+        }
+      };
+
+      this.logBuffer.on('log', onLog);
+
+      // Cleanup on disconnect
+      ws.on('close', () => {
+        this.logBuffer.off('log', onLog);
+        logger.info('📡 Log stream WebSocket disconnected');
+      });
+
+      // Handle ping/pong for keepalive
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
+
+      // Mark as alive initially
+      ws.isAlive = true;
+    });
+
+    // Keepalive ping every 30 seconds
+    const keepaliveInterval = setInterval(() => {
+      if (!this.wss) {
+        clearInterval(keepaliveInterval);
+        return;
+      }
+      
+      this.wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+      });
+    }, 30000);
+
+    logger.info('✅ Log streaming WebSocket server started on /logs/stream');
+  }
+
+  /**
+   * Start main server (handles health, prompting, and optionally HTTP API)
+   * The main server ALWAYS runs on the port specified by setPromptingServer (or default 3000)
+   */
+  startMainServer() {
+    const port = this.mainPort;
+    const host = "0.0.0.0";
+
+    // Create HTTP server from Express app (needed for WebSocket support)
+    this.httpServer = http.createServer(this.mainApp);
+
+    // Setup WebSocket for log streaming
+    this.setupLogStreaming();
+
+    // Start the HTTP server
+    this.httpServer.listen(port, host, () => {
+      logger.info(`🌐 Main HTTP server listening on ${host}:${port}`);
+      logger.info(`🔗 Health check: GET http://localhost:${port}/health`);
+      logger.info(`🔗 Status: GET http://localhost:${port}/status`);
+      logger.info(`🔗 Metrics: GET http://localhost:${port}/metrics`);
+      logger.info(`📋 Logs: GET http://localhost:${port}/logs`);
+      logger.info(`📡 Log stream: WSS ws://localhost:${port}/logs/stream`);
+      
+      const directPromptingEnabled =
+        process.env.DIRECT_PROMPTING_ENABLED !== "false";
+      if (directPromptingEnabled) {
+        logger.info(`📡 Direct prompting: POST http://localhost:${port}/prompt`);
+      }
+      
+      if (this.httpEnabled) {
+        logger.info(`🔗 HTTP API routes: http://localhost:${port}`);
+      }
+      
+      logger.info(`✅ Main server ready on port ${port}`);
     });
   }
 
   /**
-   * Start HTTP server
-   */
-  startHttpServer() {
-    if (!this.httpEnabled || !this.httpApp) return;
-
-    this.httpApp.listen(this.httpPort, this.httpHost, () => {
-      logger.info(
-        `🌐 HTTP server listening on ${this.httpHost}:${this.httpPort}`
-      );
-      logger.info(
-        `🔗 Agent HTTP endpoint: http://${this.httpHost}:${this.httpPort}`
-      );
-    });
-  }
-
-  /**
-   * Setup direct prompting server (WebSocket/HTTP)
+   * Setup direct prompting server (HTTP only)
+   * Always sets up /prompt endpoint - the main HTTP server always runs
    */
   async setupDirectPromptingServer() {
-    const directPromptingEnabled =
-      process.env.DIRECT_PROMPTING_ENABLED !== "false";
-    logger.info(`🔍 Direct prompting enabled: ${directPromptingEnabled}`);
-    if (!directPromptingEnabled) return;
-
-    const protocol = process.env.DIRECT_PROMPTING_PROTOCOL || "websocket";
     const port = parseInt(process.env.DOCKER_PORT) || 3000;
-
-    logger.info(
-      `Setting up direct prompting server (${protocol}) on port ${port}`
-    );
-
-    if (protocol === "websocket") {
-      logger.info("📡 Setting up WebSocket server...");
-      await this.setupWebSocketServer(port);
-    } else if (protocol === "http") {
-      logger.info("🌐 Setting up HTTP prompting endpoints...");
+    const directPromptingEnabled = process.env.DIRECT_PROMPTING_ENABLED !== "false";
+    
+    logger.info(`🔍 Checking direct prompting setup:`);
+    logger.info(`   - DOCKER_PORT: ${process.env.DOCKER_PORT || 'not set (defaulting to 3000)'}`);
+    logger.info(`   - DIRECT_PROMPTING_ENABLED: ${process.env.DIRECT_PROMPTING_ENABLED || 'not set'}`);
+    logger.info(`   - Direct prompting enabled: ${directPromptingEnabled}`);
+    
+    // Always set up the /prompt endpoint if DIRECT_PROMPTING_ENABLED is not explicitly "false"
+    // The main HTTP server always runs, so the endpoint should be available
+    if (directPromptingEnabled) {
+      logger.info(`🌐 Setting up HTTP prompting endpoints on port ${port}...`);
       await this.setupHttpPromptingEndpoints();
+      logger.info("✅ Direct prompting endpoint (/prompt) configured");
     } else {
-      logger.warn(`⚠️  Unknown protocol: ${protocol}`);
+      logger.warn(`⚠️  Direct prompting is DISABLED - /prompt endpoint will not be available`);
+      logger.warn(`   Set DIRECT_PROMPTING_ENABLED=true or call setPromptingServer() to enable`);
     }
-
-    logger.info("✅ Direct prompting server setup completed");
   }
 
   /**
-   * Setup WebSocket server for direct prompting
-   */
-  async setupWebSocketServer(port) {
-    const WebSocket = require("ws");
-    const maxConnections =
-      parseInt(process.env.DIRECT_PROMPTING_MAX_CONNECTIONS) || 100;
-    const authentication =
-      process.env.DIRECT_PROMPTING_AUTHENTICATION === "true";
-
-    this.wsServer = new WebSocket.Server({
-      port: port,
-      host: "0.0.0.0",
-      maxClients: maxConnections,
-    });
-
-    this.activeConnections = 0;
-
-    logger.info(
-      `WebSocket server configured with max ${maxConnections} connections, auth: ${authentication}`
-    );
-
-    this.wsServer.on("connection", (ws, req) => {
-      const clientId = require("uuid").v4();
-      this.activeConnections++;
-      logger.info(
-        `WebSocket client connected: ${clientId} (${this.activeConnections}/${maxConnections})`
-      );
-
-      ws.on("message", async (message) => {
-        try {
-          const data = JSON.parse(message.toString());
-          const { prompt, conversationId, metadata } = data;
-
-          if (!prompt) {
-            ws.send(
-              JSON.stringify({
-                error: "Prompt is required",
-                timestamp: new Date().toISOString(),
-              })
-            );
-            return;
-          }
-
-          // Process the prompt with LLM
-          const response = await this.processDirectPrompt(prompt, {
-            conversationId,
-            metadata,
-            clientId,
-            protocol: "websocket",
-          });
-
-          // Send response back
-          ws.send(
-            JSON.stringify({
-              response: response.content,
-              conversationId: conversationId || response.conversationId,
-              metadata: response.metadata,
-              timestamp: new Date().toISOString(),
-            })
-          );
-        } catch (error) {
-          logger.error("WebSocket message processing error:", error);
-          ws.send(
-            JSON.stringify({
-              error: "Failed to process prompt",
-              message: error.message,
-              timestamp: new Date().toISOString(),
-            })
-          );
-        }
-      });
-
-      ws.on("close", () => {
-        this.activeConnections--;
-        logger.info(
-          `WebSocket client disconnected: ${clientId} (${this.activeConnections}/${maxConnections})`
-        );
-      });
-
-      ws.on("error", (error) => {
-        logger.error(`WebSocket error for client ${clientId}:`, error);
-      });
-    });
-
-    logger.info(`🔌 WebSocket server listening on port ${port}`);
-    logger.info(`🔗 Direct prompting endpoint: ws://localhost:${port}`);
-  }
-
-  /**
-   * Setup HTTP endpoints for direct prompting
+   * Setup HTTP endpoints for direct prompting (adds /prompt endpoint to main app)
    */
   async setupHttpPromptingEndpoints() {
-    logger.info("🔧 Setting up HTTP prompting endpoints...");
-    const port = parseInt(process.env.DOCKER_PORT) || 3000;
-    logger.info(`Port: ${port}, httpApp exists: ${!!this.httpApp}`);
+    logger.info("🔧 Setting up HTTP prompting endpoints on main server...");
 
-    if (!this.httpApp) {
-      // Create a minimal HTTP app for prompting if main HTTP is disabled
-      logger.info("Creating new Express app for HTTP prompting");
-      this.httpApp = express();
-      this.httpApp.use(express.json({ limit: "10mb" }));
-    }
-
-    // Direct prompting endpoint
-    this.httpApp.post("/prompt", async (req, res) => {
+    // Direct prompting endpoint on main app
+    this.mainApp.post("/prompt", async (req, res) => {
+      logger.info(`📥 Received POST /prompt request from ${req.ip || 'unknown'}`);
       try {
         const { prompt, conversationId, metadata } = req.body;
 
@@ -804,34 +1225,9 @@ class AgentRuntime {
       }
     });
 
-    // Start the HTTP server if it's not already running
-    logger.info(
-      `HTTP server status: httpEnabled=${this.httpEnabled}, port=${port}`
-    );
-
-    if (!this.httpEnabled) {
-      // Only start if main HTTP server is not enabled
-      logger.info(`Starting HTTP direct prompting server on port ${port}...`);
-
-      try {
-        const server = this.httpApp.listen(port, "0.0.0.0", () => {
-          logger.info(
-            `🌐 HTTP direct prompting server listening on port ${port}`
-          );
-          logger.info(
-            `📡 Direct prompting endpoint: POST http://localhost:${port}/prompt`
-          );
-        });
-
-        server.on("error", (error) => {
-          logger.error(`HTTP server error:`, error);
-        });
-      } catch (error) {
-        logger.error(`Failed to start HTTP server:`, error);
-      }
-    } else {
-      logger.info(`📡 HTTP prompting endpoint added: POST /prompt`);
-    }
+    logger.info(`📡 HTTP prompting endpoint added: POST /prompt`);
+    logger.info(`   Full URL: http://localhost:${this.mainPort}/prompt`);
+    logger.info(`   Full URL: http://127.0.0.1:${this.mainPort}/prompt`);
   }
 
   /**
@@ -948,113 +1344,6 @@ class AgentRuntime {
     }
   }
 
-  /**
-   * Wrap HTTP handler to emit tool events
-   */
-  wrapHttpHandlerWithEvents(method, path, originalHandler) {
-    return async (req, res) => {
-      const startTime = Date.now();
-      const requestId = require("uuid").v4();
-
-      try {
-        // Emit call event
-        this.emitEvent("tool:http-server:call", {
-          requestId,
-          method: method.toUpperCase(),
-          path,
-          headers: req.headers,
-          body: req.body,
-          query: req.query,
-          params: req.params,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Emit specific method call event
-        this.emitEvent(`tool:http-server:call:${method.toLowerCase()}`, {
-          requestId,
-          path,
-          headers: req.headers,
-          body: req.body,
-          query: req.query,
-          params: req.params,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Capture response data
-        const originalSend = res.send;
-        const originalJson = res.json;
-        let responseData = null;
-        let statusCode = 200;
-
-        res.send = function (data) {
-          responseData = data;
-          statusCode = res.statusCode;
-          return originalSend.call(this, data);
-        };
-
-        res.json = function (data) {
-          responseData = data;
-          statusCode = res.statusCode;
-          return originalJson.call(this, data);
-        };
-
-        // Execute original handler
-        const result = await originalHandler(req, res);
-
-        const processingTime = Date.now() - startTime;
-
-        // Emit response event
-        this.emitEvent("tool:http-server:response", {
-          requestId,
-          method: method.toUpperCase(),
-          path,
-          statusCode,
-          responseData,
-          processingTime,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Emit specific method response event
-        this.emitEvent(`tool:http-server:response:${method.toLowerCase()}`, {
-          requestId,
-          path,
-          statusCode,
-          responseData,
-          processingTime,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Emit wildcard events
-        this.emitEvent("tool:http-server:*", {
-          type: "response",
-          requestId,
-          method: method.toUpperCase(),
-          path,
-          statusCode,
-          responseData,
-          processingTime,
-          timestamp: new Date().toISOString(),
-        });
-
-        return result;
-      } catch (error) {
-        const processingTime = Date.now() - startTime;
-
-        // Emit error event
-        this.emitEvent("tool:http-server:error", {
-          requestId,
-          method: method.toUpperCase(),
-          path,
-          error: error.message,
-          stack: error.stack,
-          processingTime,
-          timestamp: new Date().toISOString(),
-        });
-
-        throw error;
-      }
-    };
-  }
 
   /**
    * Create tools proxy for agent runtime
@@ -1072,7 +1361,7 @@ class AgentRuntime {
             data: params.data,
             timeout: params.timeout || 10000,
           });
-
+          
           return {
             status: response.status,
             headers: response.headers,
@@ -1083,11 +1372,11 @@ class AgentRuntime {
           throw new Error(`HTTP request failed: ${error.message}`);
         }
       },
-
+      
       getCurrentTime: (params = {}) => {
         const now = new Date();
         const format = params.format || "iso";
-
+        
         switch (format) {
           case "iso":
             return {
@@ -1111,14 +1400,14 @@ class AgentRuntime {
             };
         }
       },
-
+      
       analyzeText: (params) => {
         const text = params.text;
         const words = text.split(/\s+/).filter((word) => word.length > 0);
         const sentences = text
           .split(/[.!?]+/)
           .filter((s) => s.trim().length > 0);
-
+        
         const result = {
           length: text.length,
           stats: {
@@ -1131,7 +1420,7 @@ class AgentRuntime {
                 : 0,
           },
         };
-
+        
         if (params.includeSentiment) {
           const positiveWords = [
             "good",
@@ -1147,7 +1436,7 @@ class AgentRuntime {
             "horrible",
             "disappointing",
           ];
-
+          
           const lowerText = text.toLowerCase();
           const positiveCount = positiveWords.filter((word) =>
             lowerText.includes(word)
@@ -1155,7 +1444,7 @@ class AgentRuntime {
           const negativeCount = negativeWords.filter((word) =>
             lowerText.includes(word)
           ).length;
-
+          
           result.sentiment = {
             score: positiveCount - negativeCount,
             label:
@@ -1166,7 +1455,7 @@ class AgentRuntime {
                 : "neutral",
           };
         }
-
+        
         return result;
       },
     };
@@ -1177,20 +1466,19 @@ class AgentRuntime {
    */
   async shutdown() {
     logger.info("Shutting down agent...");
-
+    
     this.isRunning = false;
-
+    
     // Clean up keep-alive mechanisms
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
-      logger.debug("Heartbeat interval cleared");
     }
-
+    
     if (this.keepAliveTimeout) {
       clearTimeout(this.keepAliveTimeout);
       logger.debug("Keep-alive timeout cleared");
     }
-
+    
     // Call shutdown handlers if they exist
     const shutdownHandlers = this.handlers.get("shutdown") || [];
     for (const handler of shutdownHandlers) {
@@ -1200,7 +1488,7 @@ class AgentRuntime {
         logger.error("Error in shutdown handler:", error);
       }
     }
-
+    
     logger.info("Agent shutdown complete");
     process.exit(0);
   }

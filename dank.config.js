@@ -6,6 +6,7 @@
  */
 
 const { createAgent } = require('dank-ai');
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
   // Project configuration
@@ -15,6 +16,7 @@ module.exports = {
   agents: [
     // Example 1: Direct Prompting Agent with Event Handlers
     createAgent('prompt-agent')
+      .setId(uuidv4()) // Required: Unique UUIDv4 identifier
       .setLLM('openai', {
         apiKey: process.env.OPENAI_API_KEY,
         model: 'gpt-3.5-turbo',
@@ -23,13 +25,9 @@ module.exports = {
       .setPrompt('You are a helpful AI assistant. Be concise and friendly in your responses.')
       .setBaseImage('nodejs-20')
       .setPromptingServer({
-        protocol: 'http',
         port: 3000
       })
-      .setResources({
-        memory: '512m',
-        cpu: 1
-      })
+      .setInstanceType('small')
       // Event handlers for prompt modification and response enhancement
       .addHandler('request_output:start', (data) => {
         console.log('[Prompt Agent] Processing prompt:', data.conversationId);
@@ -81,6 +79,7 @@ module.exports = {
 
     // Example 2: HTTP API Agent with Tool Events
     createAgent('api-agent')
+      .setId(uuidv4()) // Required: Unique UUIDv4 identifier
       .setLLM('openai', {
         apiKey: process.env.OPENAI_API_KEY,
         model: 'gpt-4',
@@ -89,13 +88,9 @@ module.exports = {
       .setPrompt('You are a specialized API assistant that helps with data processing and analysis.')
       .setBaseImage('nodejs-20')
       .setPromptingServer({
-        protocol: 'http',
         port: 3001
       })
-      .setResources({
-        memory: '1g',
-        cpu: 2
-      })
+      .setInstanceType('medium')
       // HTTP API routes
       .get('/health', (req, res) => {
         res.json({ status: 'healthy', timestamp: new Date().toISOString() });
@@ -114,33 +109,6 @@ module.exports = {
           uptime: process.uptime()
         });
       })
-      // Tool event handlers for HTTP requests
-      .addHandler('tool:http-server:call', (data) => {
-        console.log('[API Agent] HTTP Request:', {
-          method: data.method,
-          path: data.path,
-          headers: data.headers,
-          body: data.body,
-          timestamp: data.timestamp
-        });
-      })
-      .addHandler('tool:http-server:response', (data) => {
-        console.log('[API Agent] HTTP Response:', {
-          statusCode: data.statusCode,
-          headers: data.headers,
-          body: data.body,
-          processingTime: data.processingTime,
-          timestamp: data.timestamp
-        });
-      })
-      .addHandler('tool:http-server:error', (data) => {
-        console.error('[API Agent] HTTP Error:', {
-          error: data.error,
-          method: data.method,
-          path: data.path,
-          timestamp: data.timestamp
-        });
-      })
       .addHandler('output', (data) => {
         console.log('[API Agent] System output:', data);
       })
@@ -150,6 +118,7 @@ module.exports = {
 
     // Example 3: Multi-Modal Agent with All Features
     createAgent('multi-agent')
+      .setId(uuidv4()) // Required: Unique UUIDv4 identifier
       .setLLM('openai', {
         apiKey: process.env.OPENAI_API_KEY,
         model: 'gpt-4',
@@ -158,13 +127,9 @@ module.exports = {
       .setPrompt('You are a versatile AI assistant that can handle both direct prompts and API requests. You excel at creative tasks and problem-solving.')
       .setBaseImage('nodejs-20')
       .setPromptingServer({
-        protocol: 'http',
         port: 3002
       })
-      .setResources({
-        memory: '2g',
-        cpu: 2
-      })
+      .setInstanceType('large')
       // HTTP API routes
       .get('/creative', (req, res) => {
         res.json({ 
@@ -191,14 +156,6 @@ module.exports = {
         return {
           response: `${data.response}\n\n✨ Enhanced by Multi-Modal Dank Agent`
         };
-      })
-      .addHandler('tool:http-server:*', (data) => {
-        console.log('[Multi Agent] HTTP Activity:', {
-          type: data.type,
-          method: data.method,
-          path: data.path,
-          timestamp: data.timestamp
-        });
       })
       .addHandler('output', (data) => {
         console.log('[Multi Agent] System output:', data);

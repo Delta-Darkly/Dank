@@ -15,6 +15,8 @@
  */
 
 const { createAgent } = require("../lib/index.js");
+const { v4: uuidv4 } = require("uuid");
+
 module.exports = {
   // Project configuration
   name: "test-project",
@@ -23,6 +25,7 @@ module.exports = {
   agents: [
     // 1. DIRECT PROMPTING ONLY - Auto-enabled because it has setPrompt() + setLLM() + handlers
     createAgent("prompt-only-agent")
+      .setId(uuidv4()) // Required: Unique UUIDv4 identifier
       .setLLM("openai", {
         apiKey:
           "x",
@@ -33,18 +36,13 @@ module.exports = {
       .setPrompt("You are a helpful assistant that responds to direct prompts.") // ✅ Auto-enables direct prompting
       .setBaseImage("nodejs-22") //latest is nodejs-20
       .setPromptingServer({
-        protocol: "http",
         port: 3000,
         authentication: false,
         maxConnections: 50,
       })
-
+      .setInstanceType("small") // Resource allocation for cloud deployments
       // HTTP API auto-disabled (no routes added)
       // Event handlers auto-enabled (handlers added below)
-      .setResources({
-        memory: "512m",
-        cpu: 1,
-      })
       // Adding handlers auto-enables event handling ✅
       .addHandler("request_output", (data) => {
         console.log("[Prompt-Only Agent] LLM Response:", {
@@ -118,14 +116,7 @@ User Question: ${data.prompt}`;
       // Direct prompting auto-disabled (no setPrompt())
       // HTTP API auto-enabled (routes added below)
       // Event handlers auto-enabled (handlers added below)
-      .enableHttp({
-        port: 3001,
-        cors: true,
-        rateLimit: {
-          windowMs: 15 * 60 * 1000,
-          max: 100
-        }
-      })
+      // Optional: .enableHttp({ port: 3001, cors: true }) to configure HTTP options
       // Adding routes auto-enables HTTP API ✅
       .get('/chat', (req, res) => {
         res.json({
@@ -145,29 +136,6 @@ User Question: ${data.prompt}`;
       .setResources({
         memory: '1g',
         cpu: 2
-      })
-      // Adding handlers auto-enables event handling ✅
-      .addHandler('tool:http-server:*', (data) => {
-        console.log('[API-Only Agent] HTTP Activity:', {
-          type: data.type,
-          method: data.method,
-          path: data.path,
-          statusCode: data.statusCode
-        });
-      })
-      .addHandler('tool:http-server:call', (data) => {
-        console.log('[API-Only Agent] Incoming Request:', {
-          method: data.method,
-          path: data.path,
-          hasBody: !!data.body
-        });
-      })
-      .addHandler('tool:http-server:response:post', (data) => {
-        console.log('[API-Only Agent] POST Response:', {
-          path: data.path,
-          statusCode: data.statusCode,
-          processingTime: data.processingTime + 'ms'
-        });
       }),
     // 3. MINIMAL AGENT - Auto-disables everything (no setPrompt, no routes, no handlers)
     createAgent('minimal-agent')
@@ -227,15 +195,11 @@ User Question: ${data.prompt}`;
       .setPrompt('You are a versatile agent supporting all communication methods.')  // ✅ Auto-enables direct prompting
       .setBaseImage('latest')
       .setPromptingServer({
-        protocol: 'websocket',
         port: 3003,
         authentication: true,
         maxConnections: 100
       })
-      .enableHttp({
-        port: 8080,
-        cors: true
-      })
+      // Optional: .enableHttp({ port: 8080, cors: true }) to configure HTTP options
       // ❌ No more .enableHttpApi() or .enableEventHandlers() needed!
       // Direct prompting auto-enabled (has setPrompt() + setLLM())
       // HTTP API auto-enabled (routes added below)
@@ -280,20 +244,6 @@ User Question: ${data.prompt}`;
           conversationId: data.conversationId,
           responseLength: data.response.length,
           processingTime: data.processingTime + 'ms'
-        });
-      })
-      .addHandler('tool:http-server:call:post', (data) => {
-        console.log('[Full-Featured Agent] HTTP POST Call:', {
-          path: data.path,
-          bodySize: JSON.stringify(data.body).length
-        });
-      })
-      .addHandler('tool:http-server:response', (data) => {
-        console.log('[Full-Featured Agent] HTTP Response:', {
-          method: data.method,
-          path: data.path,
-          status: data.statusCode,
-          time: data.processingTime + 'ms'
         });
       })
     */

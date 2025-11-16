@@ -89,6 +89,10 @@ program
   .option('--tag <tag>', 'Custom tag for images (default: latest)')
   .option('--registry <registry>', 'Docker registry URL (e.g., docker.io, ghcr.io)')
   .option('--namespace <namespace>', 'Docker namespace/organization')
+  .option('--tag-by-agent', 'Use agent name as the image tag (common image name)')
+  .option('--base-image-override <image>', 'Override base image for all agents (production builds only)')
+  .option('--json', 'Output machine-readable JSON summary to stdout')
+  .option('--output-metadata <file>', 'Output deployment metadata JSON file')
   .option('--force', 'Force rebuild without cache')
   .action(async (options) => {
     const { productionBuildCommand } = require('../lib/cli/production-build');

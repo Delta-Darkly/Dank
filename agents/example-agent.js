@@ -6,8 +6,10 @@
  */
 
 const { createAgent } = require('dank-ai');
+const { v4: uuidv4 } = require('uuid');
 
 const exampleAgent = createAgent('example-agent')
+  .setId(uuidv4()) // Required: Unique UUIDv4 identifier
   .setLLM('openai', {
     apiKey: process.env.OPENAI_API_KEY,
     model: 'gpt-3.5-turbo'
@@ -18,11 +20,7 @@ const exampleAgent = createAgent('example-agent')
     - Provide code examples when appropriate
     - Be friendly and professional
   `)
-  .setResources({
-    memory: '512m',
-    cpu: 1,
-    timeout: 30000
-  })
+  .setInstanceType('small') // Resource allocation for cloud deployments
   .addHandlers({
     output: (data) => {
       console.log(`[${new Date().toISOString()}] Agent output:`, data);

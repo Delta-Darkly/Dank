@@ -9,7 +9,14 @@
 Dank is a powerful Node.js service that allows you to define, deploy, and manage AI agents using Docker containers. Each agent runs in its own isolated environment with configurable resources, LLM providers, and custom handlers. Built for production with comprehensive CI/CD support and Docker registry integration.
 
 🌐 **Website**: [https://dank-ai.xyz](https://dank-ai.xyz)  
-📦 **NPM Package**: [https://www.npmjs.com/package/dank-ai](https://www.npmjs.com/package/dank-ai)
+📦 **NPM Package**: [https://www.npmjs.com/package/dank-ai](https://www.npmjs.com/package/dank-ai)  
+☁️ **Cloud Deployment**: [https://cloud.dank-ai.xyz](https://cloud.dank-ai.xyz) - **Serverless for AI Agents**
+
+## ☁️ Deploy to the Cloud
+
+**Serverless for AI Agents** - Deploy your Dank agents seamlessly to the cloud with zero infrastructure management.
+
+👉 **[https://cloud.dank-ai.xyz](https://cloud.dank-ai.xyz)** - The seamless cloud deployment management serverless solution for Dank. Scale your AI agents automatically, pay only for what you use, and focus on building great agents instead of managing servers.
 
 ## ✨ Features
 
@@ -88,10 +95,7 @@ module.exports = {
         temperature: 0.7
       })
       .setPrompt('You are a helpful assistant that responds with enthusiasm!')
-      .setResources({
-        memory: '512m',
-        cpu: 1
-      })
+      .setInstanceType('small')
       .addHandler('output', (data) => {
         console.log('Assistant says:', data);
       })
@@ -138,6 +142,9 @@ dank build:prod --push
 
 # Build with custom tag and registry
 dank build:prod --tag v1.0.0 --registry ghcr.io --namespace myorg --push
+
+# Use a common image name and tag by agent
+dank build:prod --registry ghcr.io --namespace myorg --tag-by-agent --push
 ```
 
 ## 📋 CLI Commands
@@ -166,6 +173,8 @@ dank build:prod --push             # Build and push to registry (CLI only)
 dank build:prod --tag v1.0.0       # Build with custom tag
 dank build:prod --registry ghcr.io # Build for specific registry
 dank build:prod --force            # Force rebuild without cache
+dank build:prod --output-metadata deployment.json  # Generate deployment metadata
+dank build:prod --json             # Output JSON summary to stdout
 ```
 
 > **💡 Push Control**: The `--push` option is the only way to push images to registries. Agent configuration defines naming, CLI controls pushing.
@@ -181,11 +190,14 @@ dank logs --follow         # Follow log output
 
 ### Production Build Options
 ```bash
-dank build:prod --push                    # Build and push to registry
-dank build:prod --tag v1.0.0             # Build with custom tag
-dank build:prod --registry ghcr.io       # Build for GitHub Container Registry
-dank build:prod --namespace mycompany    # Build with custom namespace
-dank build:prod --force                  # Force rebuild without cache
+dank build:prod --push                      # Build and push to registry
+dank build:prod --tag v1.0.0               # Build with custom tag
+dank build:prod --registry ghcr.io         # Build for GitHub Container Registry
+dank build:prod --namespace mycompany      # Build with custom namespace
+dank build:prod --tag-by-agent             # Use agent name as tag (common repo)
+dank build:prod --force                    # Force rebuild without cache
+dank build:prod --output-metadata <file>   # Output deployment metadata JSON
+dank build:prod --json                     # Output machine-readable JSON summary
 ```
 
 ## 🤖 Agent Configuration
@@ -200,16 +212,50 @@ const agent = createAgent('my-agent')
   })
   .setPrompt('Your system prompt here')
   .setPromptingServer({
-    protocol: 'http',
     port: 3000,
     authentication: false,
     maxConnections: 50
   })
-  .setResources({
-    memory: '1g',
-    cpu: 2,
-    timeout: 60000
+  .setInstanceType('medium');
+```
+
+### Adding HTTP Routes
+
+HTTP automatically enables when you add routes. Here's a simple "Hello World" POST endpoint:
+
+```javascript
+const agent = createAgent('hello-agent')
+  .setLLM('openai', {
+    apiKey: process.env.OPENAI_API_KEY,
+    model: 'gpt-3.5-turbo'
+  })
+  .setPromptingServer({
+    port: 3000
+  })
+  // Add a POST endpoint (HTTP auto-enables)
+  .post('/hello', (req, res) => {
+    res.json({ 
+      message: 'Hello, World!',
+      received: req.body,
+      timestamp: new Date().toISOString()
+    });
   });
+```
+
+**Test it:**
+```bash
+curl -X POST http://localhost:3000/hello \
+  -H "Content-Type: application/json" \
+  -d '{"name": "User"}'
+```
+
+**Response:**
+```json
+{
+  "message": "Hello, World!",
+  "received": {"name": "User"},
+  "timestamp": "2024-01-15T10:30:00.000Z"
+}
 ```
 
 ### Supported LLM Providers
@@ -279,7 +325,7 @@ Dank provides a comprehensive event system with three main sources of events. Ea
 #### 🎯 **Event Handler Patterns**
 
 ##### **1. Direct Prompting Events** (`request_output`)
-Events triggered when agents receive and respond to direct prompts via WebSocket or HTTP:
+Events triggered when agents receive and respond to direct prompts via HTTP:
 
 ```javascript
 agent
@@ -397,35 +443,10 @@ Events triggered by tool usage, following the pattern `tool:<tool-name>:<action>
 
 ```javascript
 agent
-  // HTTP Server Tool Events
-  .addHandler('tool:http-server:*', (data) => {
-    // Listen to ALL HTTP server events
-    console.log('HTTP Activity:', data.type, data.method, data.path);
-  })
-  
-  .addHandler('tool:http-server:call', (data) => {
-    // All incoming HTTP requests
-    console.log('Request:', data.method, data.path, data.body);
-  })
-  
-  .addHandler('tool:http-server:response', (data) => {
-    // All HTTP responses
-    console.log('Response:', data.statusCode, data.processingTime);
-  })
-  
-  .addHandler('tool:http-server:call:post', (data) => {
-    // Only POST requests
-    console.log('POST Request:', data.path, data.body);
-  })
-  
-  .addHandler('tool:http-server:response:get', (data) => {
-    // Only GET responses
-    console.log('GET Response:', data.path, data.responseData);
-  })
-  
-  .addHandler('tool:http-server:error', (data) => {
-    // HTTP server errors
-    console.error('HTTP Error:', data.error);
+  // Example: Tool events for built-in tools
+  .addHandler('tool:httpRequest:*', (data) => {
+    // Listen to ALL HTTP request tool events
+    console.log('HTTP Request Tool:', data);
   });
 ```
 
@@ -433,9 +454,9 @@ agent
 - `tool:<tool-name>:*` - All events for a specific tool
 - `tool:<tool-name>:call` - Tool invocation/input events
 - `tool:<tool-name>:response` - Tool output/result events
-- `tool:<tool-name>:call:<method>` - Specific method calls (e.g., POST, GET)
-- `tool:<tool-name>:response:<method>` - Specific method responses
 - `tool:<tool-name>:error` - Tool-specific errors
+
+**Note:** HTTP API routes (added via `.get()`, `.post()`, etc.) are part of the main HTTP server, not a separate tool. They don't emit tool events.
 
 ##### **3. System Events** (Legacy/System)
 Traditional system-level events:
@@ -472,10 +493,6 @@ agent
   console.log('Any tool activity:', data);
 })
 
-// Listen to all HTTP responses
-.addHandler('tool:http-server:response:*', (data) => {
-  console.log('Any HTTP response:', data);
-})
 
 // Listen to all request outputs
 .addHandler('request_output:*', (data) => {
@@ -509,7 +526,6 @@ agent
   prompt: "User's input prompt",
   response: "LLM's response",
   conversationId: "unique-conversation-id",
-  context: { protocol: "websocket", clientId: "..." },
   usage: { total_tokens: 150, prompt_tokens: 50, completion_tokens: 100 },
   model: "gpt-3.5-turbo",
   processingTime: 1250,
@@ -517,22 +533,7 @@ agent
 }
 ```
 
-**Tool HTTP Event Data:**
-```javascript
-{
-  requestId: "unique-request-id",
-  method: "POST",
-  path: "/api/chat",
-  headers: { "content-type": "application/json" },
-  body: { message: "Hello" },
-  query: {},
-  params: {},
-  statusCode: 200,
-  responseData: { response: "Hi there!" },
-  processingTime: 45,
-  timestamp: "2024-01-15T10:30:00.000Z"
-}
-```
+npm 
 
 #### 🎛️ **Communication Method Control**
 
@@ -542,27 +543,20 @@ Each communication method can be enabled/disabled independently:
 createAgent('flexible-agent')
   // Configure direct prompting with specific settings
   .setPromptingServer({ 
-    protocol: 'websocket',
     port: 3000,
     authentication: false,
     maxConnections: 50
   })
   .disableDirectPrompting() // Disable if needed
   
-  // Enable HTTP API
-  .enableHttp({ port: 3001 })
-  
   // Listen to direct prompting events only
   .addHandler('request_output', (data) => {
-    console.log('WebSocket response:', data.response);
+    console.log('HTTP response:', data.response);
   })
   
-  // HTTP events will fire when routes are added
+  // Add HTTP API routes (HTTP auto-enables)
   .get('/api/status', (req, res) => {
     res.json({ status: 'ok' });
-  })
-  .addHandler('tool:http-server:*', (data) => {
-    console.log('HTTP activity:', data);
   });
 ```
 
@@ -571,13 +565,14 @@ createAgent('flexible-agent')
 Configure container resources:
 
 ```javascript
-.setResources({
-  memory: '512m',        // Memory limit (512m, 1g, etc.)
-  cpu: 1,                // CPU allocation (0.5, 1, 2, etc.)  
-  timeout: 30000,        // Request timeout in ms
-  maxRestarts: 3         // Max container restarts
-})
+.setInstanceType('small')  // Options: 'small', 'medium', 'large', 'xlarge'
+// small: 512m, 1 CPU
+// medium: 1g, 2 CPU
+// large: 2g, 2 CPU
+// xlarge: 4g, 4 CPU
 ```
+
+**Note:** `setInstanceType()` is only used during deployments to Dank Cloud services. When running agents locally with `dank run`, this setting is disregarded and containers run without resource limits.
 
 ### Agent Image Configuration
 
@@ -621,16 +616,11 @@ module.exports = {
       })
       .setPrompt('You are a professional customer service representative.')
       .setPromptingServer({
-        protocol: 'http',
         port: 3000,
         authentication: true,
         maxConnections: 100
       })
-      .setResources({
-        memory: '1g',
-        cpu: 2,
-        timeout: 60000
-      })
+      .setInstanceType('medium')
       // Agent image configuration
       .setAgentImageConfig({
         registry: 'ghcr.io',
@@ -651,16 +641,11 @@ module.exports = {
       })
       .setPrompt('You are a data analysis expert.')
       .setPromptingServer({
-        protocol: 'http',
         port: 3001,
         authentication: false,
         maxConnections: 50
       })
-      .setResources({
-        memory: '2g',
-        cpu: 4,
-        timeout: 120000
-      })
+      .setInstanceType('large')
       // Different agent image configuration
       .setAgentImageConfig({
         registry: 'docker.io',
@@ -715,15 +700,102 @@ dank build:prod --force --push
 dank build:prod --tag release-2024.1 --push
 ```
 
+**Deployment Metadata Output:**
+```bash
+# Generate deployment metadata JSON file
+dank build:prod --output-metadata deployment.json
+
+# Build, push, and generate metadata
+dank build:prod --push --output-metadata deployment.json
+
+# Use with custom configuration
+dank build:prod --config production.config.js --output-metadata deployment.json
+```
+
+The `--output-metadata` option generates a JSON file containing all deployment information needed for your backend infrastructure:
+- **Base image** used (`setBaseImage()` value)
+- **Prompting server** configuration (port, authentication, maxConnections)
+- **Resource limits** (memory, CPU, timeout)
+- **Ports** that need to be opened
+- **Features enabled** (direct prompting, HTTP API, event handlers)
+- **HTTP server** configuration (if enabled)
+- **LLM provider** and model information
+- **Event handlers** registered
+- **Environment variables** required
+- **Build options** (registry, namespace, tag, image name)
+
+This metadata file is perfect for CI/CD pipelines to automatically configure your deployment infrastructure, determine which ports to open, and which features to enable/disable.
+
+**Example Metadata Output:**
+```json
+{
+  "project": "my-agent-project",
+  "buildTimestamp": "2024-01-15T10:30:00.000Z",
+  "agents": [
+    {
+      "name": "customer-service",
+      "imageName": "ghcr.io/mycompany/customer-service:v1.2.0",
+      "baseImage": {
+        "full": "deltadarkly/dank-agent-base:nodejs-20",
+        "tag": "nodejs-20"
+      },
+      "promptingServer": {
+        "port": 3000,
+        "authentication": false,
+        "maxConnections": 50,
+        "timeout": 30000
+      },
+      "resources": {
+        "memory": "512m",
+        "cpu": 1,
+        "timeout": 30000
+      },
+      "ports": [
+        {
+          "port": 3000,
+          "description": "Direct prompting server"
+        }
+      ],
+      "features": {
+        "directPrompting": true,
+        "httpApi": false,
+        "eventHandlers": true
+      },
+      "llm": {
+        "provider": "openai",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.7,
+        "maxTokens": 1000
+      },
+      "handlers": ["request_output", "request_output:start"],
+      "buildOptions": {
+        "registry": "ghcr.io",
+        "namespace": "mycompany",
+        "tag": "v1.2.0",
+        "tagByAgent": false
+      }
+    }
+  ],
+  "summary": {
+    "total": 1,
+    "successful": 1,
+    "failed": 0,
+    "pushed": 1
+  }
+}
+```
+
 #### 🏷️ **Image Naming Convention**
 
-**With Agent Configuration:**
+**Default (Per-Agent Repository):**
 - Format: `{registry}/{namespace}/{agent-name}:{tag}`
 - Example: `ghcr.io/mycompany/customer-service:v1.2.0`
 
-**With CLI Override:**
-- CLI options override agent configuration
-- Example: `dank build:prod --tag v2.0.0` overrides agent's tag
+**Tag By Agent (Common Repository):**
+- Enabled with `--tag-by-agent` or `agent.config.agentImage.tagByAgent = true`
+- Repository: `{registry}/{namespace}/dank-agent`
+- Tag: normalized agent name (lowercase, [a-z0-9_.-], max 128 chars)
+- Example: `ghcr.io/myorg/dank-agent:customer-service`
 
 **Without Configuration:**
 - Format: `{agent-name}:{tag}`
@@ -1098,7 +1170,7 @@ module.exports = {
         - Resolve customer issues quickly
         - Escalate complex problems appropriately
       `)
-      .setResources({ memory: '512m', cpu: 1 })
+      .setInstanceType('small')
       .addHandler('output', (data) => {
         console.log('[Customer Service]:', data);
         // Add your business logic here
@@ -1117,7 +1189,7 @@ module.exports = {
         - Provide statistical insights
         - Create actionable recommendations
       `)
-      .setResources({ memory: '1g', cpu: 2 })
+      .setInstanceType('medium')
       .addHandler('output', (data) => {
         console.log('[Analyst]:', data);
         // Save analysis results to database
@@ -1135,7 +1207,7 @@ module.exports = {
         - Adapt tone to target audience
         - Follow brand guidelines
       `)
-      .setResources({ memory: '512m', cpu: 1 })
+      .setInstanceType('small')
       .addHandler('output', (data) => {
         console.log('[Content Creator]:', data);
         // Process and publish content
@@ -1225,11 +1297,7 @@ createAgent('data-processor')
     3. Provide actionable insights
     4. Format results as JSON
   `)
-  .setResources({
-    memory: '2g',    // More memory for data processing
-    cpu: 2,          // More CPU for complex calculations
-    timeout: 120000  // Longer timeout for large datasets
-  })
+  .setInstanceType('large')  // More memory for data processing
   .addHandler('output', (analysis) => {
     try {
       const results = JSON.parse(analysis);
@@ -1312,10 +1380,7 @@ module.exports = {
         model: isDevelopment ? 'gpt-3.5-turbo' : 'gpt-4',
         temperature: isDevelopment ? 0.9 : 0.7
       })
-      .setResources({
-        memory: isDevelopment ? '256m' : '1g',
-        cpu: isDevelopment ? 0.5 : 2
-      })
+      .setInstanceType(isDevelopment ? 'small' : 'medium')
       .addHandler('output', (data) => {
         if (isDevelopment) {
           console.log('DEV:', data);
@@ -1328,63 +1393,7 @@ module.exports = {
 };
 ```
 
-### 🔧 Advanced Usage
 
-#### Environment Variables
-```bash
-export OPENAI_API_KEY="your-key"
-export ANTHROPIC_API_KEY="your-key"  
-export LOG_LEVEL="debug"
-export DOCKER_HOST="unix:///var/run/docker.sock"
-export NODE_ENV="production"
-```
-
-#### Integration with Existing Applications
-```javascript
-// In your existing Node.js application
-const { spawn } = require('child_process');
-
-// Start Dank agents programmatically
-function startAgents() {
-  const dankProcess = spawn('dank', ['run', '--detached'], {
-    stdio: 'inherit',
-    env: { ...process.env, NODE_ENV: 'production' }
-  });
-  
-  dankProcess.on('close', (code) => {
-    console.log(`Dank agents exited with code ${code}`);
-  });
-  
-  return dankProcess;
-}
-
-// Stop agents gracefully
-function stopAgents() {
-  spawn('dank', ['stop', '--all'], { stdio: 'inherit' });
-}
-
-// Check agent status
-async function getAgentStatus() {
-  return new Promise((resolve) => {
-    const statusProcess = spawn('dank', ['status', '--json'], {
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    
-    let output = '';
-    statusProcess.stdout.on('data', (data) => {
-      output += data.toString();
-    });
-    
-    statusProcess.on('close', () => {
-      try {
-        resolve(JSON.parse(output));
-      } catch {
-        resolve(null);
-      }
-    });
-  });
-}
-```
 
 ### 🚨 Troubleshooting
 
@@ -1440,18 +1449,16 @@ echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
 ```bash
 # Error: Base image 'deltadarkly/dank-agent-base' not found
 # Solution: The base image is pulled automatically, but you can build it manually
+# ty also pulling manually when docker is running  via docker pull <image name>
 dank build --base
 ```
 
 **4. Container Resource Issues**
 ```bash
 # Error: Container exits with code 137 (out of memory)
-# Solution: Increase memory allocation
+# Solution: Increase memory allocation (On cloud service, on local agents run with given resources)
 createAgent('my-agent')
-  .setResources({
-    memory: '1g',  // Increase from 512m to 1g
-    cpu: 2
-  })
+  .setInstanceType('medium')  // Increase from 'small' to 'medium'
 ```
 
 **5. Agent Not Starting**
@@ -1472,17 +1479,10 @@ docker logs container-id
 ```javascript
 // Good: Appropriate resource allocation
 createAgent('light-agent')
-  .setResources({
-    memory: '256m',     // Light tasks
-    cpu: 0.5
-  });
+  .setInstanceType('small');  // Light tasks
 
 createAgent('heavy-agent')
-  .setResources({
-    memory: '2g',       // Heavy processing
-    cpu: 2,
-    timeout: 120000     // Longer timeout
-  });
+  .setInstanceType('large');  // Heavy processing
 ```
 
 #### 2. Error Handling
@@ -1536,8 +1536,7 @@ createAgent('environment-aware')
     model: settings.model,
     temperature: 0.7
   })
-  .setResources({
-    memory: settings.memory
+  .setInstanceType(settings.instanceType || 'small')
   });
 ```
 
@@ -1588,37 +1587,25 @@ createAgent('secure-agent')
   });
 ```
 
-### 📊 Performance Optimization
 
-#### 1. Resource Tuning
-```bash
-# Monitor resource usage
-dank status --watch
-
-# Check container stats
-docker stats $(docker ps -f name=dank- -q)
-
-# Optimize based on usage patterns
-```
-
-#### 2. Parallel Agent Management
+#### 1. Parallel Agent Management
 ```javascript
 // Good: Balanced agent distribution
 module.exports = {
   agents: [
     // CPU-intensive agents
-    createAgent('analyzer').setResources({ cpu: 2, memory: '1g' }),
+    createAgent('analyzer').setInstanceType('medium'),
     
     // Memory-intensive agents  
-    createAgent('processor').setResources({ cpu: 1, memory: '2g' }),
+    createAgent('processor').setInstanceType('large'),
     
     // Light agents
-    createAgent('notifier').setResources({ cpu: 0.5, memory: '256m' })
+    createAgent('notifier').setInstanceType('small')
   ]
 };
 ```
 
-#### 3. Efficient Prompt Design
+#### 2. Efficient Prompt Design
 ```javascript
 // Good: Clear, specific prompts
 .setPrompt(`
@@ -1647,7 +1634,7 @@ dank stop --all
 dank run --build  # Rebuild if needed
 
 # 4. Test with reduced resources
-createAgent('dev-agent').setResources({ memory: '128m', cpu: 0.25 })
+createAgent('dev-agent').setInstanceType('small')
 ```
 
 #### 2. Testing Agents
@@ -1728,10 +1715,7 @@ ISC License - see LICENSE file for details.
 
 ## 🆘 Support
 
-- **Documentation**: [Wiki](https://github.com/your-org/dank/wiki)
 - **Issues**: [GitHub Issues](https://github.com/your-org/dank/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/dank/discussions)
 
 ---
-
-**Built with 💯 energy for the AI agent revolution!** 🚀
