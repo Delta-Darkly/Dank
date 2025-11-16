@@ -32,953 +32,38 @@ Dank is a powerful Node.js service that allows you to define, deploy, and manage
 ## 🚀 Quick Start
 
 ### Prerequisites
-Before you begin, make sure you have:
 - **Node.js 16+** installed
-- **Docker Desktop** or **Docker Engine** (will be installed automatically if missing)
+- **Docker Desktop** or **Docker Engine** (auto-installed if missing)
 - **API keys** for your chosen LLM provider(s)
 
-> **🆕 Auto-Docker Installation**: Dank will automatically detect, install, and start Docker if it's not available on your system. No manual setup required!
+> **🆕 Auto-Docker Installation**: Dank automatically detects, installs, and starts Docker if unavailable. No manual setup required!
 
-### 1. Install Dank globally
+### Installation & Setup
+
 ```bash
+# 1. Install globally
 npm install -g dank-ai
-```
 
-### 2. Initialize a new project
-```bash
-# Create and navigate to your project directory
-mkdir my-agent-project
-cd my-agent-project
-
-# Initialize Dank project
+# 2. Initialize project
+mkdir my-agent-project && cd my-agent-project
 dank init my-agent-project
-```
 
-This creates:
-```
-my-agent-project/
-├── dank.config.js         # Your agent configuration
-├── agents/                # Custom agent code (optional)
-│   └── example-agent.js
-└── .dank/                 # Generated files
-    └── project.yaml
-```
+# 3. Set environment variables
+export OPENAI_API_KEY="your-api-key"
 
-### 3. Set up environment variables
-Create a `.env` file or export environment variables:
+# 4. Configure agents in dank.config.js
+# (see Agent Configuration section below)
 
-```bash
-# For OpenAI
-export OPENAI_API_KEY="your-openai-api-key"
-
-# For Anthropic
-export ANTHROPIC_API_KEY="your-anthropic-api-key"
-
-# For Cohere
-export COHERE_API_KEY="your-cohere-api-key"
-```
-
-### 4. Configure your agents
-Edit `dank.config.js` to define your agents:
-
-```javascript
-const { createAgent } = require('dank');
-
-module.exports = {
-  name: 'my-agent-project',
-  
-  agents: [
-    createAgent('assistant')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-3.5-turbo',
-        temperature: 0.7
-      })
-      .setPrompt('You are a helpful assistant that responds with enthusiasm!')
-      .setInstanceType('small')
-      .addHandler('output', (data) => {
-        console.log('Assistant says:', data);
-      })
-  ]
-};
-```
-
-### 5. Build Docker images (optional)
-```bash
-# Build agent images (base image is pulled automatically)
-dank build
-
-### 6. Start your agents
-```bash
-# Start all agents
+# 5. Start agents
 dank run
 
-# Or run in detached mode (background)
-dank run --detached
-```
-
-### 7. Monitor your agents
-```bash
-# Check agent status
-dank status
-
-# Watch status in real-time
+# 6. Monitor
 dank status --watch
-
-# View agent logs
-dank logs assistant
-
-# Follow logs in real-time
 dank logs assistant --follow
 ```
 
-### 8. Build for production (optional)
-```bash
-# Build production images with custom naming
-dank build:prod
-
-# Build and push to registry
-dank build:prod --push
-
-# Build with custom tag and registry
-dank build:prod --tag v1.0.0 --registry ghcr.io --namespace myorg --push
-
-# Use a common image name and tag by agent
-dank build:prod --registry ghcr.io --namespace myorg --tag-by-agent --push
-```
-
-## 📋 CLI Commands
-
-### Core Commands
-```bash
-dank run                    # Start all defined agents
-dank status                 # Show agent status  
-dank stop [agents...]       # Stop specific agents
-dank stop --all            # Stop all agents
-dank logs [agent]          # View agent logs
-```
-
-### Management Commands  
-```bash
-dank init [name]           # Initialize new project
-dank build                 # Build Docker images
-dank build:prod            # Build agent images with custom naming
-dank clean                 # Clean up Docker resources
-```
-
-### Agent Image Build Commands
-```bash
-dank build:prod                    # Build with agent image config
-dank build:prod --push             # Build and push to registry (CLI only)
-dank build:prod --tag v1.0.0       # Build with custom tag
-dank build:prod --registry ghcr.io # Build for specific registry
-dank build:prod --force            # Force rebuild without cache
-dank build:prod --output-metadata deployment.json  # Generate deployment metadata
-dank build:prod --json             # Output JSON summary to stdout
-```
-
-> **💡 Push Control**: The `--push` option is the only way to push images to registries. Agent configuration defines naming, CLI controls pushing.
-
-### Advanced Options
-```bash
-dank run --detached        # Run in background
-dank run --no-build        # Skip rebuilding images (default is to rebuild)
-dank run --pull            # Pull latest base image before building
-dank status --watch        # Live status monitoring
-dank logs --follow         # Follow log output
-```
-
-### Production Build Options
-```bash
-dank build:prod --push                      # Build and push to registry
-dank build:prod --tag v1.0.0               # Build with custom tag
-dank build:prod --registry ghcr.io         # Build for GitHub Container Registry
-dank build:prod --namespace mycompany      # Build with custom namespace
-dank build:prod --tag-by-agent             # Use agent name as tag (common repo)
-dank build:prod --force                    # Force rebuild without cache
-dank build:prod --output-metadata <file>   # Output deployment metadata JSON
-dank build:prod --json                     # Output machine-readable JSON summary
-```
-
-## 🤖 Agent Configuration
-
-### Basic Agent Setup
-```javascript
-const agent = createAgent('my-agent')
-  .setLLM('openai', {
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4',
-    temperature: 0.8
-  })
-  .setPrompt('Your system prompt here')
-  .setPromptingServer({
-    port: 3000,
-    authentication: false,
-    maxConnections: 50
-  })
-  .setInstanceType('medium');
-```
-
-### Adding HTTP Routes
-
-HTTP automatically enables when you add routes. Here's a simple "Hello World" POST endpoint:
-
-```javascript
-const agent = createAgent('hello-agent')
-  .setLLM('openai', {
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-3.5-turbo'
-  })
-  .setPromptingServer({
-    port: 3000
-  })
-  // Add a POST endpoint (HTTP auto-enables)
-  .post('/hello', (req, res) => {
-    res.json({ 
-      message: 'Hello, World!',
-      received: req.body,
-      timestamp: new Date().toISOString()
-    });
-  });
-```
-
-**Test it:**
-```bash
-curl -X POST http://localhost:3000/hello \
-  -H "Content-Type: application/json" \
-  -d '{"name": "User"}'
-```
-
-**Response:**
-```json
-{
-  "message": "Hello, World!",
-  "received": {"name": "User"},
-  "timestamp": "2024-01-15T10:30:00.000Z"
-}
-```
-
-### Supported LLM Providers
-
-#### OpenAI
-```javascript
-.setLLM('openai', {
-  apiKey: 'your-api-key',
-  model: 'gpt-4',
-  temperature: 0.7,
-  maxTokens: 1000
-})
-```
-
-#### Anthropic
-```javascript
-.setLLM('anthropic', {
-  apiKey: 'your-api-key', 
-  model: 'claude-3-sonnet-20240229',
-  maxTokens: 1000
-})
-```
-
-#### Ollama (Local)
-```javascript
-.setLLM('ollama', {
-  baseURL: 'http://localhost:11434',
-  model: 'llama2'
-})
-```
-
-#### Cohere
-```javascript
-.setLLM('cohere', {
-  apiKey: 'your-api-key',
-  model: 'command',
-  temperature: 0.7
-})
-```
-
-#### Hugging Face
-```javascript
-.setLLM('huggingface', {
-  apiKey: 'your-api-key',
-  model: 'microsoft/DialoGPT-medium'
-})
-```
-
-#### Custom Provider
-```javascript
-.setLLM('custom', {
-  baseURL: 'https://api.your-provider.com',
-  apiKey: 'your-key',
-  model: 'your-model'
-})
-```
-
-### Event Handlers
-
-Dank provides a comprehensive event system with three main sources of events. Each event handler follows specific naming patterns for maximum flexibility and control.
-
-> **🆕 Auto-Detection**: Dank automatically enables communication features based on your usage:
-> - **Event Handlers**: Auto-enabled when you add `.addHandler()` calls
-> - **Direct Prompting**: Auto-enabled when you use `.setPrompt()` + `.setLLM()`
-> - **HTTP API**: Auto-enabled when you add routes with `.get()`, `.post()`, etc.
-
-#### 🎯 **Event Handler Patterns**
-
-##### **1. Direct Prompting Events** (`request_output`)
-Events triggered when agents receive and respond to direct prompts via HTTP:
-
-```javascript
-agent
-  // Main LLM response event
-  .addHandler('request_output', (data) => {
-    console.log('LLM Response:', {
-      prompt: data.prompt,                    // Original prompt
-      finalPrompt: data.finalPrompt,          // Modified prompt (if changed)
-      response: data.response,                // LLM response
-      conversationId: data.conversationId,
-      processingTime: data.processingTime,
-      promptModified: data.promptModified,    // Boolean: was prompt modified?
-      usage: data.usage,
-      model: data.model
-    });
-  })
-  
-  // Lifecycle events with modification capabilities
-  .addHandler('request_output:start', (data) => {
-    console.log('Processing prompt:', data.conversationId);
-    console.log('Original prompt:', data.prompt);
-    
-    // ✨ MODIFY PROMPT: Return modified data to change the prompt sent to LLM
-    const enhancedPrompt = `Context: You are a helpful assistant. Please be concise and friendly.\n\nUser Question: ${data.prompt}`;
-    
-    return {
-      prompt: enhancedPrompt  // This will replace the original prompt
-    };
-  })
-  
-  .addHandler('request_output:end', (data) => {
-    console.log('Completed in:', data.processingTime + 'ms');
-    console.log('Original response:', data.response.substring(0, 50) + '...');
-    
-    // ✨ MODIFY RESPONSE: Return modified data to change the response sent to caller
-    const enhancedResponse = `${data.response}\n\n---\n💡 This response was generated by Dank Framework`;
-    
-    return {
-      response: enhancedResponse  // This will replace the original response
-    };
-  })
-  
-  .addHandler('request_output:error', (data) => {
-    console.error('Prompt processing failed:', data.error);
-  });
-```
-
-**🔄 Event Modification Capabilities:**
-
-- **`request_output:start`**: Can modify the prompt before it's sent to the LLM by returning an object with a `prompt` property
-- **`request_output:end`**: Can modify the response before it's sent back to the caller by returning an object with a `response` property
-- **Event Data**: All events include both original and final values, plus modification flags for tracking changes
-
-**⏱️ Event Flow Timeline:**
-
-1. **`request_output:start`** → Fires when prompt is received
-   - Can modify prompt before LLM processing
-   - Contains: `{ prompt, conversationId, context, timestamp }`
-
-2. **LLM Processing** → The (potentially modified) prompt is sent to the LLM
-
-3. **`request_output`** → Fires after LLM responds successfully
-   - Contains: `{ prompt, finalPrompt, response, conversationId, promptModified, ... }`
-
-4. **`request_output:end`** → Fires after `request_output`, before sending to caller
-   - Can modify response before returning to client
-   - Contains: `{ prompt, finalPrompt, response, conversationId, promptModified, success, ... }`
-
-5. **Response Sent** → The (potentially modified) response is sent back to the caller
-
-**💡 Practical Examples:**
-
-```javascript
-// Example 1: Add context and formatting to prompts
-.addHandler('request_output:start', (data) => {
-  // Add system context and format the user's question
-  const enhancedPrompt = `System: You are a helpful AI assistant. Be concise and professional.
-
-User Question: ${data.prompt}
-
-Please provide a clear, helpful response.`;
-  
-  return { prompt: enhancedPrompt };
-})
-
-// Example 2: Add metadata and branding to responses
-.addHandler('request_output:end', (data) => {
-  // Add footer with metadata and branding
-  const brandedResponse = `${data.response}
-
----
-🤖 Generated by Dank Framework Agent
-⏱️ Processing time: ${data.processingTime}ms
-🆔 Conversation: ${data.conversationId}`;
-  
-  return { response: brandedResponse };
-})
-
-// Example 3: Log and analyze all interactions
-.addHandler('request_output', (data) => {
-  // Log for analytics
-  console.log('Interaction logged:', {
-    originalPrompt: data.prompt,
-    modifiedPrompt: data.finalPrompt,
-    wasModified: data.promptModified,
-    responseLength: data.response.length,
-    model: data.model,
-    usage: data.usage
-  });
-})
-```
-
-##### **2. Tool Events** (`tool:*`)
-Events triggered by tool usage, following the pattern `tool:<tool-name>:<action>:<specifics>`:
-
-```javascript
-agent
-  // Example: Tool events for built-in tools
-  .addHandler('tool:httpRequest:*', (data) => {
-    // Listen to ALL HTTP request tool events
-    console.log('HTTP Request Tool:', data);
-  });
-```
-
-**Tool Event Pattern Structure:**
-- `tool:<tool-name>:*` - All events for a specific tool
-- `tool:<tool-name>:call` - Tool invocation/input events
-- `tool:<tool-name>:response` - Tool output/result events
-- `tool:<tool-name>:error` - Tool-specific errors
-
-**Note:** HTTP API routes (added via `.get()`, `.post()`, etc.) are part of the main HTTP server, not a separate tool. They don't emit tool events.
-
-##### **3. System Events** (Legacy/System)
-Traditional system-level events:
-
-```javascript
-agent
-  .addHandler('output', (data) => {
-    console.log('General output:', data);
-  })
-  
-  .addHandler('error', (error) => {
-    console.error('System error:', error);
-  })
-  
-  .addHandler('heartbeat', () => {
-    console.log('Agent heartbeat');
-  })
-  
-  .addHandler('start', () => {
-    console.log('Agent started');
-  })
-  
-  .addHandler('stop', () => {
-    console.log('Agent stopped');
-  });
-```
-
-#### 🔥 **Advanced Event Patterns**
-
-**Wildcard Matching:**
-```javascript
-// Listen to all tool events
-.addHandler('tool:*', (data) => {
-  console.log('Any tool activity:', data);
-})
-
-
-// Listen to all request outputs
-.addHandler('request_output:*', (data) => {
-  console.log('Any request event:', data);
-})
-```
-
-**Multiple Handlers:**
-```javascript
-// Multiple handlers for the same event
-agent
-  .addHandler('request_output', (data) => {
-    // Log to console
-    console.log('Response:', data.response);
-  })
-  .addHandler('request_output', (data) => {
-    // Save to database
-    saveToDatabase(data);
-  })
-  .addHandler('request_output', (data) => {
-    // Send to analytics
-    trackAnalytics(data);
-  });
-```
-
-#### 📊 **Event Data Structures**
-
-**Request Output Event Data:**
-```javascript
-{
-  prompt: "User's input prompt",
-  response: "LLM's response",
-  conversationId: "unique-conversation-id",
-  usage: { total_tokens: 150, prompt_tokens: 50, completion_tokens: 100 },
-  model: "gpt-3.5-turbo",
-  processingTime: 1250,
-  timestamp: "2024-01-15T10:30:00.000Z"
-}
-```
-
-npm 
-
-#### 🎛️ **Communication Method Control**
-
-Each communication method can be enabled/disabled independently:
-
-```javascript
-createAgent('flexible-agent')
-  // Configure direct prompting with specific settings
-  .setPromptingServer({ 
-    port: 3000,
-    authentication: false,
-    maxConnections: 50
-  })
-  .disableDirectPrompting() // Disable if needed
-  
-  // Listen to direct prompting events only
-  .addHandler('request_output', (data) => {
-    console.log('HTTP response:', data.response);
-  })
-  
-  // Add HTTP API routes (HTTP auto-enables)
-  .get('/api/status', (req, res) => {
-    res.json({ status: 'ok' });
-  });
-```
-
-### Resource Management
-
-Configure container resources:
-
-```javascript
-.setInstanceType('small')  // Options: 'small', 'medium', 'large', 'xlarge'
-// small: 512m, 1 CPU
-// medium: 1g, 2 CPU
-// large: 2g, 2 CPU
-// xlarge: 4g, 4 CPU
-```
-
-**Note:** `setInstanceType()` is only used during deployments to Dank Cloud services. When running agents locally with `dank run`, this setting is disregarded and containers run without resource limits.
-
-### Agent Image Configuration
-
-Configure Docker image naming and registry settings for agent builds:
-
-```javascript
-// Complete agent image configuration
-.setAgentImageConfig({
-  registry: 'ghcr.io',           // Docker registry URL
-  namespace: 'mycompany',        // Organization/namespace
-  tag: 'v1.0.0'                 // Image tag
-})
-```
-
-#### 🏗️ **Agent Image Build Workflow**
-
-The agent image build feature allows you to create properly tagged Docker images for deployment to container registries. This is essential for:
-
-- **CI/CD Pipelines**: Automated builds and deployments
-- **Container Orchestration**: Kubernetes, Docker Swarm, etc.
-- **Multi-Environment Deployments**: Dev, staging, production
-- **Version Management**: Semantic versioning with tags
-
-> **📝 Note**: Image pushing is controlled exclusively by the CLI `--push` option. Agent configuration only defines image naming (registry, namespace, tag) - not push behavior.
-
-#### 📋 **Complete Agent Image Example**
-
-```javascript
-const { createAgent } = require('dank');
-
-module.exports = {
-  name: 'production-system',
-  
-  agents: [
-    // Production-ready customer service agent
-    createAgent('customer-service')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4',
-        temperature: 0.7
-      })
-      .setPrompt('You are a professional customer service representative.')
-      .setPromptingServer({
-        port: 3000,
-        authentication: true,
-        maxConnections: 100
-      })
-      .setInstanceType('medium')
-      // Agent image configuration
-      .setAgentImageConfig({
-        registry: 'ghcr.io',
-        namespace: 'mycompany',
-        tag: 'v1.2.0'
-      })
-      .addHandler('request_output', (data) => {
-        // Log for production monitoring
-        console.log(`[${new Date().toISOString()}] Customer Service: ${data.response.substring(0, 100)}...`);
-      }),
-
-    // Data processing agent with different registry
-    createAgent('data-processor')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4',
-        temperature: 0.1
-      })
-      .setPrompt('You are a data analysis expert.')
-      .setPromptingServer({
-        port: 3001,
-        authentication: false,
-        maxConnections: 50
-      })
-      .setInstanceType('large')
-      // Different agent image configuration
-      .setAgentImageConfig({
-        registry: 'docker.io',
-        namespace: 'mycompany',
-        tag: 'latest'
-      })
-      .addHandler('request_output', (data) => {
-        console.log(`[Data Processor] Analysis completed: ${data.processingTime}ms`);
-      })
-  ]
-};
-```
-
-#### 🚀 **Production Build Commands**
-
-**Basic Production Build:**
-```bash
-# Build all agents with their image configuration
-dank build:prod
-
-# Build with custom configuration file
-dank build:prod --config production.config.js
-```
-
-**Registry and Tagging:**
-```bash
-# Build with custom tag
-dank build:prod --tag v2.1.0
-
-# Build for GitHub Container Registry
-dank build:prod --registry ghcr.io --namespace myorg
-
-# Build for Docker Hub
-dank build:prod --registry docker.io --namespace mycompany
-
-# Build for private registry
-dank build:prod --registry registry.company.com --namespace ai-agents
-```
-
-**Push and Force Rebuild:**
-```bash
-# Build and push to registry
-dank build:prod --push
-
-# Force rebuild without cache
-dank build:prod --force
-
-# Force rebuild and push
-dank build:prod --force --push
-
-# Build with custom tag and push
-dank build:prod --tag release-2024.1 --push
-```
-
-**Deployment Metadata Output:**
-```bash
-# Generate deployment metadata JSON file
-dank build:prod --output-metadata deployment.json
-
-# Build, push, and generate metadata
-dank build:prod --push --output-metadata deployment.json
-
-# Use with custom configuration
-dank build:prod --config production.config.js --output-metadata deployment.json
-```
-
-The `--output-metadata` option generates a JSON file containing all deployment information needed for your backend infrastructure:
-- **Base image** used (`setBaseImage()` value)
-- **Prompting server** configuration (port, authentication, maxConnections)
-- **Resource limits** (memory, CPU, timeout)
-- **Ports** that need to be opened
-- **Features enabled** (direct prompting, HTTP API, event handlers)
-- **HTTP server** configuration (if enabled)
-- **LLM provider** and model information
-- **Event handlers** registered
-- **Environment variables** required
-- **Build options** (registry, namespace, tag, image name)
-
-This metadata file is perfect for CI/CD pipelines to automatically configure your deployment infrastructure, determine which ports to open, and which features to enable/disable.
-
-**Example Metadata Output:**
-```json
-{
-  "project": "my-agent-project",
-  "buildTimestamp": "2024-01-15T10:30:00.000Z",
-  "agents": [
-    {
-      "name": "customer-service",
-      "imageName": "ghcr.io/mycompany/customer-service:v1.2.0",
-      "baseImage": {
-        "full": "deltadarkly/dank-agent-base:nodejs-20",
-        "tag": "nodejs-20"
-      },
-      "promptingServer": {
-        "port": 3000,
-        "authentication": false,
-        "maxConnections": 50,
-        "timeout": 30000
-      },
-      "resources": {
-        "memory": "512m",
-        "cpu": 1,
-        "timeout": 30000
-      },
-      "ports": [
-        {
-          "port": 3000,
-          "description": "Direct prompting server"
-        }
-      ],
-      "features": {
-        "directPrompting": true,
-        "httpApi": false,
-        "eventHandlers": true
-      },
-      "llm": {
-        "provider": "openai",
-        "model": "gpt-3.5-turbo",
-        "temperature": 0.7,
-        "maxTokens": 1000
-      },
-      "handlers": ["request_output", "request_output:start"],
-      "buildOptions": {
-        "registry": "ghcr.io",
-        "namespace": "mycompany",
-        "tag": "v1.2.0",
-        "tagByAgent": false
-      }
-    }
-  ],
-  "summary": {
-    "total": 1,
-    "successful": 1,
-    "failed": 0,
-    "pushed": 1
-  }
-}
-```
-
-#### 🏷️ **Image Naming Convention**
-
-**Default (Per-Agent Repository):**
-- Format: `{registry}/{namespace}/{agent-name}:{tag}`
-- Example: `ghcr.io/mycompany/customer-service:v1.2.0`
-
-**Tag By Agent (Common Repository):**
-- Enabled with `--tag-by-agent` or `agent.config.agentImage.tagByAgent = true`
-- Repository: `{registry}/{namespace}/dank-agent`
-- Tag: normalized agent name (lowercase, [a-z0-9_.-], max 128 chars)
-- Example: `ghcr.io/myorg/dank-agent:customer-service`
-
-**Without Configuration:**
-- Format: `{agent-name}:{tag}`
-- Example: `customer-service:latest`
-
-#### 🔧 **Registry Authentication**
-
-**Docker Hub:**
-```bash
-# Login to Docker Hub
-docker login
-
-# Build and push
-dank build:prod --registry docker.io --namespace myusername --push
-```
-
-**GitHub Container Registry:**
-```bash
-# Login to GHCR
-echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
-
-# Build and push
-dank build:prod --registry ghcr.io --namespace myorg --push
-```
-
-**Private Registry:**
-```bash
-# Login to private registry
-docker login registry.company.com
-
-# Build and push
-dank build:prod --registry registry.company.com --namespace ai-agents --push
-```
-
-#### 📊 **Build Output Example**
-
-```bash
-$ dank build:prod --push
-
-🏗️  Building production Docker images...
-
-📦 Building production image for agent: customer-service
-info: Building production image for agent: customer-service -> ghcr.io/mycompany/customer-service:v1.2.0
-Step 1/3 : FROM deltadarkly/dank-agent-base:latest
- ---> 7b560f235fe3
-Step 2/3 : COPY agent-code/ /app/agent-code/
- ---> d766de6e95c4
-Step 3/3 : USER dankuser
- ---> Running in c773e808270c
-Successfully built 43a664c636a2
-Successfully tagged ghcr.io/mycompany/customer-service:v1.2.0
-info: Production image 'ghcr.io/mycompany/customer-service:v1.2.0' built successfully
-info: Pushing image to registry: ghcr.io/mycompany/customer-service:v1.2.0
-info: Successfully pushed image: ghcr.io/mycompany/customer-service:v1.2.0
-✅ Successfully built: ghcr.io/mycompany/customer-service:v1.2.0
-🚀 Successfully pushed: ghcr.io/mycompany/customer-service:v1.2.0
-
-📊 Build Summary:
-================
-✅ Successful builds: 2
-🚀 Pushed to registry: 2
-
-📦 Built Images:
-  - ghcr.io/mycompany/customer-service:v1.2.0
-  - docker.io/mycompany/data-processor:latest
-
-🎉 Production build completed successfully!
-```
-
-#### 🔄 **CI/CD Integration**
-
-**GitHub Actions Example:**
-```yaml
-name: Build and Push Production Images
-
-on:
-  push:
-    tags:
-      - 'v*'
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-          
-      - name: Install Dank
-        run: npm install -g dank-ai
-        
-      - name: Login to GHCR
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: Build and Push Production Images
-        run: |
-          dank build:prod \
-            --registry ghcr.io \
-            --namespace ${{ github.repository_owner }} \
-            --tag ${{ github.ref_name }} \
-            --push
-```
-
-**GitLab CI Example:**
-```yaml
-build_production:
-  stage: build
-  image: node:18
-  before_script:
-    - npm install -g dank-ai
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-  script:
-    - dank build:prod --registry $CI_REGISTRY --namespace $CI_PROJECT_NAMESPACE --tag $CI_COMMIT_TAG --push
-  only:
-    - tags
-```
-
-#### 🐳 **Docker Compose Integration**
-
-Use your production images in Docker Compose:
-
-```yaml
-version: '3.8'
-
-services:
-  customer-service:
-    image: ghcr.io/mycompany/customer-service:v1.2.0
-    ports:
-      - "3000:3000"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    restart: unless-stopped
-
-  data-processor:
-    image: docker.io/mycompany/data-processor:latest
-    ports:
-      - "3001:3001"
-    environment:
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    restart: unless-stopped
-```
-
-#### 🚨 **Troubleshooting Production Builds**
-
-**Common Issues:**
-
-1. **Registry Authentication:**
-   ```bash
-   # Error: authentication required
-   # Solution: Login to registry first
-   docker login ghcr.io
-   ```
-
-2. **Push Permissions:**
-   ```bash
-   # Error: denied: push access denied
-   # Solution: Check namespace permissions or use personal namespace
-   dank build:prod --namespace your-username --push
-   ```
-
-3. **Image Already Exists:**
-   ```bash
-   # Error: image already exists
-   # Solution: Use different tag or force rebuild
-   dank build:prod --tag v1.2.1 --push
-   ```
-
-4. **Build Context Issues:**
-   ```bash
-   # Error: build context too large
-   # Solution: Add .dockerignore file
-   echo "node_modules/" > .dockerignore
-   echo "*.log" >> .dockerignore
-   ```
-
-## 🏗️ Project Structure
+<details>
+<summary><b>📁 Project Structure</b></summary>
 
 ```
 my-project/
@@ -989,10 +74,519 @@ my-project/
     ├── project.yaml       # Project state
     └── logs/              # Agent logs
 ```
+</details>
+
+## 📋 CLI Commands
+
+### Core Commands
+```bash
+dank run                    # Start all defined agents
+dank status [--watch]      # Show agent status (live updates)
+dank stop [agents...]      # Stop specific agents or --all
+dank logs [agent] [--follow] # View agent logs
+dank init [name]           # Initialize new project
+dank build                  # Build Docker images
+dank build:prod            # Build production images
+dank clean                  # Clean up Docker resources
+```
+
+### Production Build Options
+```bash
+dank build:prod --push                      # Build and push to registry
+dank build:prod --tag v1.0.0               # Custom tag
+dank build:prod --registry ghcr.io         # GitHub Container Registry
+dank build:prod --namespace mycompany     # Custom namespace
+dank build:prod --tag-by-agent            # Use agent name as tag
+dank build:prod --force                   # Force rebuild
+dank build:prod --output-metadata <file>  # Generate deployment metadata
+dank build:prod --json                    # JSON output
+```
+
+> **💡 Push Control**: The `--push` option is the only way to push images. Agent config defines naming, CLI controls pushing.
+
+## 🤖 Agent Configuration
+
+### Basic Setup
+
+```javascript
+const { createAgent } = require('dank');
+
+module.exports = {
+  name: 'my-project',
+  agents: [
+    createAgent('assistant')
+      .setId(require('uuid').v4()) // Required: Unique UUIDv4
+      .setLLM('openai', {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: 'gpt-3.5-turbo',
+        temperature: 0.7
+      })
+      .setPrompt('You are a helpful assistant.')
+      .setPromptingServer({ port: 3000 })
+      .setInstanceType('small') // Cloud only: 'small', 'medium', 'large', 'xlarge'
+      .addHandler('request_output', (data) => {
+        console.log('Response:', data.response);
+      })
+  ]
+};
+```
+
+### Supported LLM Providers
+
+| Provider | Configuration |
+|----------|-------------|
+| **OpenAI** | `.setLLM('openai', { apiKey, model, temperature, maxTokens })` |
+| **Anthropic** | `.setLLM('anthropic', { apiKey, model, maxTokens })` |
+| **Ollama** | `.setLLM('ollama', { baseURL, model })` |
+| **Cohere** | `.setLLM('cohere', { apiKey, model, temperature })` |
+| **Hugging Face** | `.setLLM('huggingface', { apiKey, model })` |
+| **Custom** | `.setLLM('custom', { baseURL, apiKey, model })` |
+
+### HTTP Routes
+
+HTTP automatically enables when you add routes:
+
+```javascript
+createAgent('api-agent')
+  .setPromptingServer({ port: 3000 })
+  .post('/hello', (req, res) => {
+    res.json({ message: 'Hello, World!', received: req.body });
+  })
+  .get('/status', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+```
+
+### Event Handlers
+
+> **🆕 Auto-Detection**: Dank automatically enables features based on usage:
+> - Event Handlers: Auto-enabled with `.addHandler()`
+> - Direct Prompting: Auto-enabled with `.setPrompt()` + `.setLLM()`
+> - HTTP API: Auto-enabled with `.get()`, `.post()`, etc.
+
+<details>
+<summary><b>📡 Event Handler Patterns</b></summary>
+
+#### Direct Prompting Events (`request_output`)
+
+```javascript
+agent
+  // Main response event
+  .addHandler('request_output', (data) => {
+    console.log('Response:', data.response);
+  })
+  
+  // Modify prompt before LLM processing
+  .addHandler('request_output:start', (data) => {
+    return { prompt: `Enhanced: ${data.prompt}` };
+  })
+  
+  // Modify response before returning
+  .addHandler('request_output:end', (data) => {
+    return { response: `${data.response}\n\n---\nGenerated by Dank` };
+  })
+  
+  // Error handling
+  .addHandler('request_output:error', (data) => {
+    console.error('Error:', data.error);
+  });
+```
+
+**Event Flow**: `request_output:start` → LLM Processing → `request_output` → `request_output:end` → Response Sent
+
+#### Tool Events (`tool:*`)
+
+```javascript
+.addHandler('tool:httpRequest:*', (data) => {
+  console.log('HTTP Request Tool:', data);
+});
+```
+
+Pattern: `tool:<tool-name>:<action>` (e.g., `tool:httpRequest:call`, `tool:httpRequest:response`)
+
+#### System Events
+
+```javascript
+.addHandler('output', (data) => console.log('Output:', data))
+.addHandler('error', (error) => console.error('Error:', error))
+.addHandler('start', () => console.log('Agent started'))
+.addHandler('stop', () => console.log('Agent stopped'))
+```
+
+#### Advanced Patterns
+
+```javascript
+// Wildcard matching
+.addHandler('tool:*', (data) => console.log('Any tool:', data))
+.addHandler('request_output:*', (data) => console.log('Any request event:', data))
+
+// Multiple handlers for same event
+.addHandler('request_output', (data) => console.log('Log:', data))
+.addHandler('request_output', (data) => saveToDatabase(data))
+.addHandler('request_output', (data) => trackAnalytics(data))
+```
+</details>
+
+### Resource Management
+
+```javascript
+.setInstanceType('small')  // Options: 'small', 'medium', 'large', 'xlarge'
+// small: 512m, 1 CPU
+// medium: 1g, 2 CPU
+// large: 2g, 2 CPU
+// xlarge: 4g, 4 CPU
+```
+
+**Note:** `setInstanceType()` is only used during deployments to Dank Cloud. Local runs with `dank run` disregard this setting.
+
+### Production Image Configuration
+
+```javascript
+.setAgentImageConfig({
+  registry: 'ghcr.io',      // Docker registry URL
+  namespace: 'mycompany',    // Organization/namespace
+  tag: 'v1.0.0'             // Image tag
+})
+```
+
+<details>
+<summary><b>🏗️ Production Build Details</b></summary>
+
+#### Image Naming
+
+- **Default**: `{registry}/{namespace}/{agent-name}:{tag}`
+- **Tag by Agent** (`--tag-by-agent`): `{registry}/{namespace}/dank-agent:{agent-name}`
+- **No Config**: `{agent-name}:{tag}`
+
+#### Deployment Metadata
+
+The `--output-metadata` option generates JSON with:
+- Base image, ports, resource limits
+- LLM provider and model info
+- Event handlers, environment variables
+- Build options (registry, namespace, tag)
+
+Perfect for CI/CD pipelines to auto-configure deployment infrastructure.
+
+<details>
+<summary><b>Example Metadata Output</b></summary>
+
+```json
+{
+  "project": "my-agent-project",
+  "agents": [{
+    "name": "customer-service",
+    "imageName": "ghcr.io/mycompany/customer-service:v1.2.0",
+    "baseImage": { "full": "deltadarkly/dank-agent-base:nodejs-20" },
+    "promptingServer": { "port": 3000, "authentication": false },
+    "resources": { "memory": "512m", "cpu": 1 },
+    "llm": { "provider": "openai", "model": "gpt-3.5-turbo" },
+    "handlers": ["request_output", "request_output:start"]
+  }]
+}
+```
+</details>
+
+#### Registry Authentication
+
+```bash
+# Docker Hub
+docker login
+dank build:prod --registry docker.io --namespace myusername --push
+
+# GitHub Container Registry
+echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
+dank build:prod --registry ghcr.io --namespace myorg --push
+
+# Private Registry
+docker login registry.company.com
+dank build:prod --registry registry.company.com --namespace ai-agents --push
+```
+
+#### CI/CD Integration
+
+<details>
+<summary><b>GitHub Actions Example</b></summary>
+
+```yaml
+name: Build and Push Production Images
+on:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - run: npm install -g dank-ai
+      - uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          dank build:prod \
+            --registry ghcr.io \
+            --namespace ${{ github.repository_owner }} \
+            --tag ${{ github.ref_name }} \
+            --push
+```
+</details>
+
+<details>
+<summary><b>Docker Compose Example</b></summary>
+
+```yaml
+version: '3.8'
+services:
+  customer-service:
+    image: ghcr.io/mycompany/customer-service:v1.2.0
+    ports: ["3000:3000"]
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    restart: unless-stopped
+```
+</details>
+</details>
+
+## 🐳 Docker Architecture
+
+Dank uses a layered Docker approach:
+1. **Base Image** (`deltadarkly/dank-agent-base`): Common runtime with Node.js, LLM clients
+2. **Agent Images**: Extend base image with agent-specific code
+3. **Containers**: Running instances with resource limits and networking
+
+### Container Features
+- **Isolated Environments**: Each agent runs in its own container
+- **Resource Limits**: Memory and CPU constraints per agent
+- **Health Monitoring**: Built-in health checks and status reporting
+- **Automatic Restarts**: Container restart policies for reliability
+- **Logging**: Centralized log collection and viewing
+
+<details>
+<summary><b>🚀 Automatic Docker Management</b></summary>
+
+Dank automatically handles Docker installation and startup:
+
+**Auto-Detection & Installation:**
+1. Checks if Docker is installed
+2. Installs Docker if missing (macOS: Homebrew, Linux: apt, Windows: Chocolatey)
+3. Starts Docker if stopped
+4. Waits for availability
+
+**Platform-Specific:**
+- **macOS**: `brew install --cask docker && open -a Docker`
+- **Linux**: `sudo apt-get install docker-ce && sudo systemctl start docker`
+- **Windows**: `choco install docker-desktop`
+
+If automatic installation fails, Dank provides clear manual instructions.
+</details>
+
+## 💼 Usage Examples
+
+<details>
+<summary><b>🎯 Common Use Cases</b></summary>
+
+#### Customer Support Automation
+```javascript
+createAgent('support-bot')
+  .setLLM('openai', { apiKey: process.env.OPENAI_API_KEY, model: 'gpt-3.5-turbo' })
+  .setPrompt('You are a customer support specialist. Be polite, helpful, and escalate when needed.')
+  .addHandler('output', (response) => sendToCustomer(response))
+  .addHandler('error', (error) => escalateToHuman(error));
+```
+
+#### Content Generation Pipeline
+```javascript
+const agents = [
+  createAgent('researcher')
+    .setLLM('openai', { model: 'gpt-4' })
+    .setPrompt('Research and gather information on given topics')
+    .addHandler('output', (research) => triggerContentCreation(research)),
+
+  createAgent('writer')
+    .setLLM('anthropic', { model: 'claude-3-sonnet' })
+    .setPrompt('Write engaging blog posts based on research data')
+    .addHandler('output', (article) => saveDraft(article)),
+  
+  createAgent('seo-optimizer')
+    .setLLM('openai', { model: 'gpt-3.5-turbo' })
+    .setPrompt('Optimize content for SEO and readability')
+    .addHandler('output', (content) => publishContent(content))
+];
+```
+
+#### Data Analysis Workflow
+```javascript
+createAgent('data-processor')
+  .setLLM('openai', { model: 'gpt-4', temperature: 0.1 })
+  .setPrompt('Analyze data and provide insights as JSON: trends, metrics, recommendations')
+  .setInstanceType('large')
+  .addHandler('output', (analysis) => {
+      const results = JSON.parse(analysis);
+      saveAnalysisResults(results);
+      generateReport(results);
+      checkAlerts(results);
+  });
+```
+</details>
+
+<details>
+<summary><b>🔧 Advanced Configuration</b></summary>
+
+#### Custom Agent Code
+```javascript
+// agents/custom-agent.js
+module.exports = {
+  async main(llmClient, handlers) {
+    setInterval(async () => {
+        const response = await llmClient.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: 'You are a helpful assistant' },
+            { role: 'user', content: 'Generate a daily report' }
+          ]
+        });
+      handlers.get('output')?.forEach(h => h(response.choices[0].message.content));
+    }, 60000);
+  }
+};
+```
+
+#### Environment-Specific Configuration
+```javascript
+const env = process.env.NODE_ENV || 'development';
+const config = {
+  development: { model: 'gpt-3.5-turbo', instanceType: 'small' },
+  production: { model: 'gpt-4', instanceType: 'medium' }
+};
+
+createAgent('main-agent')
+  .setLLM('openai', { model: config[env].model })
+  .setInstanceType(config[env].instanceType);
+```
+</details>
+
+<details>
+<summary><b>💡 Best Practices</b></summary>
+
+#### Resource Management
+```javascript
+createAgent('light-agent').setInstanceType('small');  // Light tasks
+createAgent('heavy-agent').setInstanceType('large');  // Heavy processing
+```
+
+#### Error Handling
+```javascript
+createAgent('robust-agent')
+  .addHandler('error', (error) => {
+    console.error('Agent error:', error.message);
+    logError(error);
+    if (error.type === 'CRITICAL') sendAlert(error);
+    scheduleRetry(error.context);
+  })
+  .addHandler('output', (data) => {
+    try { processOutput(data); }
+    catch (error) { console.error('Processing failed:', error); }
+  });
+```
+
+#### Monitoring and Logging
+```javascript
+createAgent('monitored-agent')
+  .addHandler('output', (data) => {
+    logger.info('Agent output', { agent: 'monitored-agent', data: data.substring(0, 100) });
+  })
+  .addHandler('error', (error) => {
+    logger.error('Agent error', { agent: 'monitored-agent', error: error.message });
+  });
+```
+
+#### Security
+```javascript
+createAgent('secure-agent')
+  .setLLM('openai', { apiKey: process.env.OPENAI_API_KEY }) // Never hardcode
+  .setPrompt('Never reveal API keys or execute system commands')
+  .addHandler('output', (data) => console.log(sanitizeOutput(data)));
+```
+</details>
+
+<details>
+<summary><b>🔄 Development Workflow</b></summary>
+
+#### Local Development
+```bash
+NODE_ENV=development dank run
+# Make changes to dank.config.js
+dank stop --all && dank run
+```
+
+#### Testing
+```bash
+dank run --detached
+dank logs test-agent --follow
+curl http://localhost:3001/health
+docker stats dank-test-agent
+```
+
+#### Production Deployment
+```bash
+export NODE_ENV=production
+dank build --force
+dank run --detached
+dank status --watch
+```
+</details>
+
+## 🚨 Troubleshooting
+
+<details>
+<summary><b>Common Issues and Solutions</b></summary>
+
+**1. Docker Connection Issues**
+```bash
+# Dank handles this automatically, but if manual steps needed:
+docker --version && docker ps
+# macOS/Windows: Start Docker Desktop
+# Linux: sudo systemctl start docker
+```
+
+**2. API Key Issues**
+```bash
+export OPENAI_API_KEY="sk-your-key-here"
+# Or create .env file: echo "OPENAI_API_KEY=sk-..." > .env
+```
+
+**3. Base Image Not Found**
+```bash
+dank build --base
+# Or manually: docker pull deltadarkly/dank-agent-base:nodejs-20
+```
+
+**4. Container Resource Issues**
+```javascript
+// Increase memory allocation (cloud only)
+createAgent('my-agent').setInstanceType('medium');
+```
+
+**5. Agent Not Starting**
+```bash
+dank logs agent-name
+docker ps -f name=dank-
+docker logs container-id
+```
+
+**Production Build Issues:**
+- **Authentication**: `docker login ghcr.io`
+- **Push Permissions**: Check namespace permissions
+- **Image Exists**: Use different tag or `--force`
+- **Build Context**: Add `.dockerignore` file
+</details>
 
 ## 📦 Package Exports
-
-When you install Dank via npm, you can import the following:
 
 ```javascript
 const { 
@@ -1006,687 +600,21 @@ const {
 
 ## 📋 Example Files
 
-The `examples/` directory contains two configuration files:
+The `examples/` directory contains:
+- **`dank.config.js`** - Local development example
+- **`dank.config.template.js`** - Production template
 
-- **`dank.config.js`** - Local development example (uses `../lib/index.js`)
-- **`dank.config.template.js`** - Production template (uses `require("dank")`)
-
-### For Local Development
 ```bash
-# Use the example file directly
+# Local development
 dank run --config example/dank.config.js
-```
 
-### For Production Use
-```bash
-# 1. Copy the template to your project
+# Production
 cp example/dank.config.template.js ./dank.config.js
-
-# 2. Install dank as a dependency
 npm install dank-ai
-
-# 3. The template already uses the correct import
-# const { createAgent } = require("dank");
-
-# 4. Run your agents
 dank run
 ```
 
-## 🐳 Docker Architecture
-
-Dank uses a layered Docker approach:
-
-1. **Base Image** (`deltadarkly/dank-agent-base`): Common runtime with Node.js, LLM clients
-2. **Agent Images**: Extend base image with agent-specific code and custom tags
-3. **Containers**: Running instances with resource limits and networking
-
-### Container Features
-- **Isolated Environments**: Each agent runs in its own container
-- **Resource Limits**: Memory and CPU constraints per agent
-- **Health Monitoring**: Built-in health checks and status reporting
-- **Automatic Restarts**: Container restart policies for reliability
-- **Logging**: Centralized log collection and viewing
-
-### 🚀 Automatic Docker Management
-
-Dank automatically handles Docker installation and startup for you:
-
-#### **Auto-Detection & Installation**
-When you run any Dank command, it will:
-1. **Check if Docker is installed** - Runs `docker --version` to detect installation
-2. **Install Docker if missing** - Automatically installs Docker for your platform:
-   - **macOS**: Uses Homebrew to install Docker Desktop
-   - **Linux**: Installs Docker CE via apt package manager
-   - **Windows**: Uses Chocolatey to install Docker Desktop
-3. **Start Docker if stopped** - Automatically starts Docker service
-4. **Wait for availability** - Ensures Docker is ready before proceeding
-
-#### **Platform-Specific Installation**
-
-**macOS:**
-```bash
-# Dank will automatically run:
-brew install --cask docker
-open -a Docker
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-# Dank will automatically run:
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -aG docker $USER
-```
-
-**Windows:**
-```bash
-# Dank will automatically run:
-choco install docker-desktop -y
-start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-```
-
-#### **Manual Fallback**
-If automatic installation fails, Dank will provide clear instructions:
-```bash
-# Example output when manual installation is needed
-❌ Docker installation failed: Homebrew not found
-💡 Please install Docker Desktop manually from:
-   https://www.docker.com/products/docker-desktop/
-```
-
-#### **Status Messages**
-Dank provides clear feedback during the process:
-```bash
-🔍 Checking Docker availability...
-📦 Docker is not installed. Installing Docker...
-🖥️  Installing Docker Desktop for macOS...
-⏳ Installing Docker Desktop via Homebrew...
-✅ Docker installation completed
-🚀 Starting Docker Desktop...
-⏳ Waiting for Docker to become available...
-✅ Docker is now available
-🐳 Docker connection established
-```
-
-## 💼 Using Dank in Your Project
-
-### Step-by-Step Integration Guide
-
-#### 1. Project Setup
-```bash
-# In your existing project directory
-npm install -g dank-ai
-
-# Initialize Dank configuration
-dank init
-
-# This creates dank.config.js in your current directory
-```
-
-#### 2. Basic Agent Configuration
-Start with a simple agent configuration in `dank.config.js`:
-
-```javascript
-const { createAgent } = require('dank');
-
-module.exports = {
-  name: 'my-project',
-  
-  agents: [
-    // Simple assistant agent
-    createAgent('helper')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-3.5-turbo'
-      })
-      .setPrompt('You are a helpful assistant.')
-      .addHandler('output', console.log)
-  ]
-};
-```
-
-#### 3. Multi-Agent Setup
-Configure multiple specialized agents:
-
-```javascript
-const { createAgent } = require('dank');
-
-module.exports = {
-  name: 'multi-agent-system',
-  
-  agents: [
-    // Customer service agent
-    createAgent('customer-service')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-3.5-turbo',
-        temperature: 0.7
-      })
-      .setPrompt(`
-        You are a friendly customer service representative.
-        - Be helpful and professional
-        - Resolve customer issues quickly
-        - Escalate complex problems appropriately
-      `)
-      .setInstanceType('small')
-      .addHandler('output', (data) => {
-        console.log('[Customer Service]:', data);
-        // Add your business logic here
-      }),
-
-    // Data analyst agent
-    createAgent('analyst')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: 'gpt-4',
-        temperature: 0.3
-      })
-      .setPrompt(`
-        You are a data analyst expert.
-        - Analyze trends and patterns
-        - Provide statistical insights
-        - Create actionable recommendations
-      `)
-      .setInstanceType('medium')
-      .addHandler('output', (data) => {
-        console.log('[Analyst]:', data);
-        // Save analysis results to database
-      }),
-
-    // Content creator agent
-    createAgent('content-creator')
-      .setLLM('anthropic', {
-        apiKey: process.env.ANTHROPIC_API_KEY,
-        model: 'claude-3-sonnet-20240229'
-      })
-      .setPrompt(`
-        You are a creative content writer.
-        - Write engaging, original content
-        - Adapt tone to target audience
-        - Follow brand guidelines
-      `)
-      .setInstanceType('small')
-      .addHandler('output', (data) => {
-        console.log('[Content Creator]:', data);
-        // Process and publish content
-      })
-  ]
-};
-```
-
-### 🎯 Common Use Cases
-
-#### Use Case 1: Customer Support Automation
-```javascript
-createAgent('support-bot')
-  .setLLM('openai', {
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-3.5-turbo'
-  })
-  .setPrompt(`
-    You are a customer support specialist for [Your Company].
-    
-    Guidelines:
-    - Always be polite and helpful
-    - For technical issues, provide step-by-step solutions
-    - If you cannot resolve an issue, escalate to human support
-    - Use the customer's name when available
-    
-    Knowledge Base:
-    - Product features: [list your features]
-    - Common issues: [list common problems and solutions]
-    - Contact info: support@yourcompany.com
-  `)
-  .addHandler('output', (response) => {
-    // Send response back to customer via your chat system
-    sendToCustomer(response);
-  })
-  .addHandler('error', (error) => {
-    // Fallback to human support
-    escalateToHuman(error);
-  });
-```
-
-#### Use Case 2: Content Generation Pipeline
-```javascript
-const contentAgents = [
-  // Research agent
-  createAgent('researcher')
-    .setLLM('openai', { model: 'gpt-4' })
-    .setPrompt('Research and gather information on given topics')
-    .addHandler('output', (research) => {
-      // Pass research to writer agent
-      triggerContentCreation(research);
-    }),
-
-  // Writer agent  
-  createAgent('writer')
-    .setLLM('anthropic', { model: 'claude-3-sonnet' })
-    .setPrompt('Write engaging blog posts based on research data')
-    .addHandler('output', (article) => {
-      // Save draft and notify editor
-      saveDraft(article);
-      notifyEditor(article);
-    }),
-
-  // SEO optimizer agent
-  createAgent('seo-optimizer')
-    .setLLM('openai', { model: 'gpt-3.5-turbo' })
-    .setPrompt('Optimize content for SEO and readability')
-    .addHandler('output', (optimizedContent) => {
-      // Publish optimized content
-      publishContent(optimizedContent);
-    })
-];
-```
-
-#### Use Case 3: Data Analysis Workflow
-```javascript
-createAgent('data-processor')
-  .setLLM('openai', {
-    apiKey: process.env.OPENAI_API_KEY,
-    model: 'gpt-4',
-    temperature: 0.1  // Low temperature for consistent analysis
-  })
-  .setPrompt(`
-    You are a data analyst. Analyze the provided data and:
-    1. Identify key trends and patterns
-    2. Calculate important metrics
-    3. Provide actionable insights
-    4. Format results as JSON
-  `)
-  .setInstanceType('large')  // More memory for data processing
-  .addHandler('output', (analysis) => {
-    try {
-      const results = JSON.parse(analysis);
-      // Store results in database
-      saveAnalysisResults(results);
-      // Generate reports
-      generateReport(results);
-      // Send alerts if thresholds are met
-      checkAlerts(results);
-    } catch (error) {
-      console.error('Failed to parse analysis:', error);
-    }
-  });
-```
-
-### 🔧 Advanced Configuration
-
-#### Custom Agent Code
-For complex logic, create custom agent files in the `agents/` directory:
-
-```javascript
-// agents/custom-agent.js
-module.exports = {
-  async main(llmClient, handlers) {
-    console.log('Custom agent starting...');
-    
-    // Your custom agent logic
-    setInterval(async () => {
-      try {
-        // Make LLM request
-        const response = await llmClient.chat.completions.create({
-          model: 'gpt-3.5-turbo',
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant' },
-            { role: 'user', content: 'Generate a daily report' }
-          ]
-        });
-        
-        // Trigger output handlers
-        const outputHandlers = handlers.get('output') || [];
-        outputHandlers.forEach(handler => 
-          handler(response.choices[0].message.content)
-        );
-        
-      } catch (error) {
-        // Trigger error handlers
-        const errorHandlers = handlers.get('error') || [];
-        errorHandlers.forEach(handler => handler(error));
-      }
-    }, 60000); // Run every minute
-  },
-  
-  // Define custom handlers
-  handlers: {
-    output: [
-      (data) => console.log('Custom output:', data)
-    ],
-    error: [
-      (error) => console.error('Custom error:', error)
-    ]
-  }
-};
-```
-
-#### Environment-Specific Configuration
-```javascript
-// dank.config.js
-const { createAgent } = require('dank');
-
-const isDevelopment = process.env.NODE_ENV === 'development';
-const isProduction = process.env.NODE_ENV === 'production';
-
-module.exports = {
-  name: 'my-project',
-  
-  agents: [
-    createAgent('main-agent')
-      .setLLM('openai', {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: isDevelopment ? 'gpt-3.5-turbo' : 'gpt-4',
-        temperature: isDevelopment ? 0.9 : 0.7
-      })
-      .setInstanceType(isDevelopment ? 'small' : 'medium')
-      .addHandler('output', (data) => {
-        if (isDevelopment) {
-          console.log('DEV:', data);
-        } else {
-          // Production logging
-          logger.info('Agent output', { data });
-        }
-      })
-  ]
-};
-```
-
-
-
-### 🚨 Troubleshooting
-
-#### Common Issues and Solutions
-
-**1. Docker Connection Issues**
-```bash
-# Error: Cannot connect to Docker daemon
-# Solution: Dank will automatically handle this!
-
-# If automatic installation fails, manual steps:
-docker --version
-docker ps
-
-# On macOS/Windows: Start Docker Desktop manually
-# On Linux: Start Docker service
-sudo systemctl start docker
-```
-
-**1a. Docker Installation Issues**
-```bash
-# If automatic installation fails, try manual installation:
-
-# macOS (with Homebrew):
-brew install --cask docker
-open -a Docker
-
-# Linux (Ubuntu/Debian):
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-sudo systemctl start docker
-sudo usermod -aG docker $USER
-
-# Windows (with Chocolatey):
-choco install docker-desktop -y
-# Then start Docker Desktop from Start Menu
-```
-
-**2. API Key Issues**
-```bash
-# Error: Invalid API key
-# Solution: Check your environment variables
-echo $OPENAI_API_KEY
-
-# Set the key properly
-export OPENAI_API_KEY="sk-your-actual-key-here"
-
-# Or create a .env file in your project
-echo "OPENAI_API_KEY=sk-your-actual-key-here" > .env
-```
-
-**3. Base Image Not Found**
-```bash
-# Error: Base image 'deltadarkly/dank-agent-base' not found
-# Solution: The base image is pulled automatically, but you can build it manually
-# ty also pulling manually when docker is running  via docker pull <image name>
-dank build --base
-```
-
-**4. Container Resource Issues**
-```bash
-# Error: Container exits with code 137 (out of memory)
-# Solution: Increase memory allocation (On cloud service, on local agents run with given resources)
-createAgent('my-agent')
-  .setInstanceType('medium')  // Increase from 'small' to 'medium'
-```
-
-**5. Agent Not Starting**
-```bash
-# Check agent logs for detailed error information
-dank logs agent-name
-
-# Check container status
-docker ps -f name=dank-
-
-# View Docker logs directly
-docker logs container-id
-```
-
-### 💡 Best Practices
-
-#### 1. Resource Management
-```javascript
-// Good: Appropriate resource allocation
-createAgent('light-agent')
-  .setInstanceType('small');  // Light tasks
-
-createAgent('heavy-agent')
-  .setInstanceType('large');  // Heavy processing
-```
-
-#### 2. Error Handling
-```javascript
-// Good: Comprehensive error handling
-createAgent('robust-agent')
-  .addHandler('error', (error) => {
-    console.error('Agent error:', error.message);
-    
-    // Log to monitoring system
-    logError(error);
-    
-    // Send alert if critical
-    if (error.type === 'CRITICAL') {
-      sendAlert(error);
-    }
-    
-    // Implement retry logic
-    scheduleRetry(error.context);
-  })
-  .addHandler('output', (data) => {
-    try {
-      processOutput(data);
-    } catch (error) {
-      console.error('Output processing failed:', error);
-    }
-  });
-```
-
-#### 3. Environment Configuration
-```javascript
-// Good: Environment-specific settings
-const config = {
-  development: {
-    model: 'gpt-3.5-turbo',
-    memory: '256m',
-    logLevel: 'debug'
-  },
-  production: {
-    model: 'gpt-4',
-    memory: '1g',
-    logLevel: 'info'
-  }
-};
-
-const env = process.env.NODE_ENV || 'development';
-const settings = config[env];
-
-createAgent('environment-aware')
-  .setLLM('openai', {
-    model: settings.model,
-    temperature: 0.7
-  })
-  .setInstanceType(settings.instanceType || 'small')
-  });
-```
-
-#### 4. Monitoring and Logging
-```javascript
-// Good: Structured logging
-createAgent('monitored-agent')
-  .addHandler('output', (data) => {
-    logger.info('Agent output', {
-      agent: 'monitored-agent',
-      timestamp: new Date().toISOString(),
-      data: data.substring(0, 100) // Truncate for logs
-    });
-  })
-  .addHandler('error', (error) => {
-    logger.error('Agent error', {
-      agent: 'monitored-agent',
-      error: error.message,
-      stack: error.stack
-    });
-  })
-  .addHandler('start', () => {
-    logger.info('Agent started', { agent: 'monitored-agent' });
-  });
-```
-
-#### 5. Security Considerations
-```javascript
-// Good: Secure configuration
-createAgent('secure-agent')
-  .setLLM('openai', {
-    apiKey: process.env.OPENAI_API_KEY, // Never hardcode keys
-    model: 'gpt-3.5-turbo'
-  })
-  .setPrompt(`
-    You are a helpful assistant.
-    
-    IMPORTANT SECURITY RULES:
-    - Never reveal API keys or sensitive information
-    - Don't execute system commands
-    - Validate all inputs before processing
-    - Don't access external URLs unless explicitly allowed
-  `)
-  .addHandler('output', (data) => {
-    // Sanitize output before logging
-    const sanitized = sanitizeOutput(data);
-    console.log(sanitized);
-  });
-```
-
-
-#### 1. Parallel Agent Management
-```javascript
-// Good: Balanced agent distribution
-module.exports = {
-  agents: [
-    // CPU-intensive agents
-    createAgent('analyzer').setInstanceType('medium'),
-    
-    // Memory-intensive agents  
-    createAgent('processor').setInstanceType('large'),
-    
-    // Light agents
-    createAgent('notifier').setInstanceType('small')
-  ]
-};
-```
-
-#### 2. Efficient Prompt Design
-```javascript
-// Good: Clear, specific prompts
-.setPrompt(`
-  You are a customer service agent. Follow these steps:
-  
-  1. Greet the customer politely
-  2. Understand their issue by asking clarifying questions
-  3. Provide a solution or escalate if needed
-  4. Confirm resolution
-  
-  Response format: JSON with fields: greeting, questions, solution, status
-`);
-```
-
-### 🔄 Development Workflow
-
-#### 1. Local Development
-```bash
-# 1. Start with development configuration
-NODE_ENV=development dank run
-
-# 2. Make changes to dank.config.js
-
-# 3. Restart agents to apply changes
-dank stop --all
-dank run --build  # Rebuild if needed
-
-# 4. Test with reduced resources
-createAgent('dev-agent').setInstanceType('small')
-```
-
-#### 2. Testing Agents
-```bash
-# Test individual agents
-dank run --detached
-dank logs test-agent --follow
-
-# Check health endpoints
-curl http://localhost:3001/health
-
-# Monitor resource usage
-docker stats dank-test-agent
-```
-
-#### 3. Production Deployment
-```bash
-# 1. Set production environment
-export NODE_ENV=production
-
-# 2. Build optimized images
-dank build --force
-
-# 3. Start with image config
-dank run --detached
-
-# 4. Monitor and scale as needed
-dank status --watch
-```
-
-### Monitoring and Debugging
-
-```bash
-# Watch all agents in real-time
-dank status --watch
-
-# Follow logs from specific agent  
-dank logs my-agent --follow
-
-# View container details
-docker ps -f name=dank-
-
-# Check agent health
-curl http://localhost:3001/health
-```
-
 ## 📦 Installation
-
-### Prerequisites
-- Node.js 16+ 
-- Docker Desktop or Docker Engine
-- npm or yarn
 
 ### Global Installation
 ```bash
