@@ -8,15 +8,15 @@
 
 Dank is a powerful Node.js service that allows you to define, deploy, and manage AI agents using Docker containers. Each agent runs in its own isolated environment with configurable resources, LLM providers, and custom handlers. Built for production with comprehensive CI/CD support and Docker registry integration.
 
-🌐 **Website**: [https://dank-ai.xyz](https://dank-ai.xyz)  
+🌐 **Website**: [https://ai-dank.xyz](https://ai-dank.xyz)  
 📦 **NPM Package**: [https://www.npmjs.com/package/dank-ai](https://www.npmjs.com/package/dank-ai)  
-☁️ **Cloud Deployment**: [https://cloud.dank-ai.xyz](https://cloud.dank-ai.xyz) - **Serverless for AI Agents**
+☁️ **Cloud Deployment**: [https://cloud.ai-dank.xyz](https://cloud.ai-dank.xyz) - **Serverless for AI Agents**
 
 ## ☁️ Deploy to the Cloud
 
 **Serverless for AI Agents** - Deploy your Dank agents seamlessly to the cloud with zero infrastructure management.
 
-👉 **[https://cloud.dank-ai.xyz](https://cloud.dank-ai.xyz)** - The seamless cloud deployment management serverless solution for Dank. Scale your AI agents automatically, pay only for what you use, and focus on building great agents instead of managing servers.
+👉 **[https://cloud.ai-dank.xyz](https://cloud.ai-dank.xyz)** - The seamless cloud deployment management serverless solution for Dank. Scale your AI agents automatically, pay only for what you use, and focus on building great agents instead of managing servers.
 
 ## ✨ Features
 
