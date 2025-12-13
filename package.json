@@ -1,6 +1,6 @@
 {
   "name": "dank-ai",
-  "version": "1.0.41",
+  "version": "1.0.42",
   "description": "Dank Agent Service - Docker-based AI agent orchestration platform",
   "main": "lib/index.js",
   "exports": {

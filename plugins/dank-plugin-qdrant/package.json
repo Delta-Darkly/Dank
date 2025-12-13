@@ -1,0 +1,32 @@
+{
+  "name": "dank-plugin-qdrant",
+  "version": "1.0.0",
+  "description": "Qdrant vector database plugin for Dank AI agents",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "dank",
+    "qdrant",
+    "vector-database",
+    "plugin",
+    "ai",
+    "agent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@qdrant/js-client-rest": "^1.9.0",
+    "joi": "^17.11.0",
+    "uuid": "^9.0.1"
+  },
+  "peerDependencies": {
+    "dank-ai": "*"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
+
