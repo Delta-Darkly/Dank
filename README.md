@@ -23,6 +23,8 @@ Dank is a powerful Node.js service that allows you to define, deploy, and manage
 - **🤖 Multi-LLM Support**: OpenAI, Anthropic, Cohere, Ollama, and custom providers
 - **🐳 Docker Orchestration**: Isolated agent containers with resource management  
 - **⚡ Easy Configuration**: Define agents with simple JavaScript configuration
+- **📦 NPM Package Support**: Use any npm package in your handlers with top-level imports
+- **📘 TypeScript Ready**: Full support for TypeScript and compiled projects
 - **📊 Real-time Monitoring**: Built-in health checks and status monitoring
 - **🔧 Flexible Handlers**: Custom event handlers for agent outputs and errors
 - **🎯 CLI Interface**: Powerful command-line tools for agent management
@@ -81,6 +83,7 @@ my-project/
 ### Core Commands
 ```bash
 dank run                    # Start all defined agents
+dank run --config <path>   # Use custom config path (for compiled projects)
 dank status [--watch]      # Show agent status (live updates)
 dank stop [agents...]      # Stop specific agents or --all
 dank logs [agent] [--follow] # View agent logs
@@ -109,13 +112,19 @@ dank build:prod --json                    # JSON output
 ### Basic Setup
 
 ```javascript
-const { createAgent } = require('dank');
+// Import npm packages at the top - they'll be available in handlers
+const axios = require('axios');
+const { format } = require('date-fns');
+const { processData } = require('./utils'); // Local files work too
+
+const { createAgent } = require('dank-ai');
+const { v4: uuidv4 } = require('uuid');
 
 module.exports = {
   name: 'my-project',
   agents: [
     createAgent('assistant')
-      .setId(require('uuid').v4()) // Required: Unique UUIDv4
+      .setId(uuidv4()) // Required: Unique UUIDv4
       .setLLM('openai', {
         apiKey: process.env.OPENAI_API_KEY,
         model: 'gpt-3.5-turbo',
@@ -124,12 +133,50 @@ module.exports = {
       .setPrompt('You are a helpful assistant.')
       .setPromptingServer({ port: 3000 })
       .setInstanceType('small') // Cloud only: 'small', 'medium', 'large', 'xlarge'
-      .addHandler('request_output', (data) => {
-        console.log('Response:', data.response);
+      .addHandler('request_output', async (data) => {
+        // Use imported packages directly in handlers
+        console.log(`[${format(new Date(), 'yyyy-MM-dd HH:mm')}] Response:`, data.response);
+        await axios.post('https://api.example.com/log', { response: data.response });
+        processData(data);
       })
   ]
 };
 ```
+
+> **📦 NPM Packages**: Any packages you `require()` at the top of your config are automatically available in your handlers. Just make sure they're in your `package.json`.
+
+<details>
+<summary><b>📦 Dynamic Imports (ESM-only packages)</b></summary>
+
+For ESM-only packages that don't support `require()`, use dynamic `import()`:
+
+```javascript
+// Dynamic imports return Promises - define at top level
+const uniqueString = import("unique-string").then((m) => m.default);
+const chalk = import("chalk").then((m) => m.default);
+
+// Multiline .then() is also supported
+const ora = import("ora").then((m) => {
+  return m.default;
+});
+
+module.exports = {
+  agents: [
+    createAgent('my-agent')
+      .addHandler('output', async (data) => {
+        // Await the promise to get the actual module
+        const generateString = await uniqueString;
+        const colors = await chalk;
+        
+        console.log(colors.green(`ID: ${generateString()}`));
+      })
+  ]
+};
+```
+
+**Note:** Dynamic imports are asynchronous, so you must `await` them inside your handlers.
+
+</details>
 
 ### Supported LLM Providers
 
@@ -512,6 +559,67 @@ createAgent('secure-agent')
   .setPrompt('Never reveal API keys or execute system commands')
   .addHandler('output', (data) => console.log(sanitizeOutput(data)));
 ```
+</details>
+
+<details>
+<summary><b>📘 TypeScript & Compiled Projects</b></summary>
+
+Dank works with TypeScript and any build tool (Webpack, esbuild, etc.) that outputs CommonJS JavaScript.
+
+#### Setup
+
+1. **Write your config in TypeScript:**
+
+```typescript
+// src/dank.config.ts
+import axios from 'axios';
+import { processData } from './utils';
+import { createAgent } from 'dank-ai';
+import { v4 as uuidv4 } from 'uuid';
+
+export = {
+  name: 'my-ts-project',
+  agents: [
+    createAgent('assistant')
+      .setId(uuidv4())
+      .setLLM('openai', { apiKey: process.env.OPENAI_API_KEY })
+      .addHandler('request_output', async (data) => {
+        await axios.post('/api/log', data);
+        processData(data);
+      })
+  ]
+};
+```
+
+2. **Configure TypeScript for CommonJS output:**
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2020",
+    "outDir": "./dist",
+    "esModuleInterop": true
+  }
+}
+```
+
+3. **Compile and run:**
+
+```bash
+# Compile TypeScript
+tsc
+
+# Run with --config pointing to compiled output
+dank run --config ./dist/dank.config.js
+
+# Production build
+dank build:prod --config ./dist/dank.config.js --push
+```
+
+> **💡 Tip**: The `--config` flag tells Dank where to find your compiled config. Your `package.json` is still read from the project root for dependency installation.
+
 </details>
 
 <details>
