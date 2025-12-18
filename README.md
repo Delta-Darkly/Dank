@@ -241,6 +241,95 @@ agent
 
 **Event Flow**: `request_output:start` → LLM Processing → `request_output` → `request_output:end` → Response Sent
 
+#### Passing Custom Data to Handlers
+
+You can pass any custom data in the request body to the `/prompt` endpoint, and it will be available in your handlers via `data.metadata`. This enables powerful use cases like user authentication, conversation tracking, RAG (Retrieval-Augmented Generation), and custom lookups.
+
+**Client Request:**
+```javascript
+// POST /prompt
+{
+  "prompt": "What's the weather today?",
+  "userId": "user-12345",
+  "conversationId": "conv-abc-xyz",
+  "sessionId": "sess-789",
+  "userPreferences": {
+    "language": "en",
+    "timezone": "America/New_York"
+  }
+}
+```
+
+**Handler Access:**
+```javascript
+agent
+  .addHandler('request_output:start', async (data) => {
+    // Access custom data via data.metadata
+    const userId = data.metadata.userId;
+    const conversationId = data.metadata.conversationId;
+    
+    // Perform authentication
+    const user = await authenticateUser(userId);
+    if (!user) throw new Error('Unauthorized');
+    
+    // Load conversation history for context
+    const history = await getConversationHistory(conversationId);
+    
+    // Perform RAG lookup
+    const relevantDocs = await vectorSearch(data.prompt, userId);
+    
+    // Enhance prompt with context
+    return {
+      prompt: `Context: ${JSON.stringify(history)}\n\nRelevant Docs: ${relevantDocs}\n\nUser Question: ${data.prompt}`
+    };
+  })
+  
+  .addHandler('request_output', async (data) => {
+    // Log with user context
+    await logInteraction({
+      userId: data.metadata.userId,
+      conversationId: data.metadata.conversationId,
+      prompt: data.prompt,
+      response: data.response,
+      timestamp: data.timestamp
+    });
+    
+    // Update user preferences based on interaction
+    if (data.metadata.userPreferences) {
+      await updateUserPreferences(data.metadata.userId, data.metadata.userPreferences);
+    }
+  });
+```
+
+**Use Cases:**
+- **User Authentication**: Pass `userId` or `apiKey` to authenticate and authorize requests
+- **Conversation Tracking**: Pass `conversationId` to maintain context across multiple requests
+- **RAG (Retrieval-Augmented Generation)**: Pass user context to fetch relevant documents from vector databases
+- **Personalization**: Pass `userPreferences` to customize responses
+- **Analytics**: Pass tracking IDs to correlate requests with user sessions
+- **Multi-tenancy**: Pass `tenantId` or `organizationId` for isolated data access
+
+**Available Data Structure:**
+```javascript
+{
+  prompt: "User's prompt",
+  metadata: {
+    // All custom fields from request body
+    userId: "...",
+    conversationId: "...",
+    // ... any other fields you pass
+  },
+  // System fields (directly on data object)
+  protocol: "http",
+  clientIp: "127.0.0.1",
+  response: "LLM response",
+  usage: { total_tokens: 150 },
+  model: "gpt-3.5-turbo",
+  processingTime: 1234,
+  timestamp: "2024-01-01T00:00:00.000Z"
+}
+```
+
 #### Tool Events (`tool:*`)
 
 ```javascript
