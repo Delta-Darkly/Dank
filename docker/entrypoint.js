@@ -494,10 +494,11 @@ class AgentRuntime {
   }
 
   /**
-   * Emit an event to all matching handlers
+   * Emit an event to all matching handlers (fire-and-forget)
+   * Supports both sync and async handlers
    * Supports pattern matching for tool events
    */
-  emitEvent(eventName, data = null) {
+  async emitEvent(eventName, data = null) {
     // Find all matching handlers (exact match and pattern match)
     const matchingHandlers = [];
 
@@ -507,18 +508,26 @@ class AgentRuntime {
       }
     }
 
-    // Execute all matching handlers
-    matchingHandlers.forEach((handler) => {
+    // Execute all matching handlers (in parallel for fire-and-forget)
+    const promises = matchingHandlers.map(async (handler) => {
       try {
+        let result;
         if (typeof handler === "function") {
-          handler(data);
+          result = handler(data);
         } else if (handler.handler && typeof handler.handler === "function") {
-          handler.handler(data);
+          result = handler.handler(data);
+        }
+        // Await if handler returns a promise
+        if (result && typeof result.then === "function") {
+          await result;
         }
       } catch (error) {
         logger.error(`Error in event handler for '${eventName}':`, error);
       }
     });
+
+    // Wait for all handlers to complete
+    await Promise.all(promises);
 
     if (matchingHandlers.length > 0) {
       logger.debug(
@@ -529,8 +538,10 @@ class AgentRuntime {
 
   /**
    * Emit an event and collect responses from handlers that return modified data
+   * Supports both sync and async handlers
+   * Handlers are executed sequentially to allow proper chaining of modifications
    */
-  emitEventWithResponse(eventName, data) {
+  async emitEventWithResponse(eventName, data) {
     // Find all matching handlers (exact match and pattern match)
     const matchingHandlers = [];
 
@@ -542,14 +553,19 @@ class AgentRuntime {
 
     let modifiedData = { ...data };
 
-    // Execute all matching handlers and collect responses
-    matchingHandlers.forEach((handler) => {
+    // Execute handlers sequentially to allow chaining of modifications
+    for (const handler of matchingHandlers) {
       try {
         let result;
         if (typeof handler === "function") {
           result = handler(modifiedData);
         } else if (handler.handler && typeof handler.handler === "function") {
           result = handler.handler(modifiedData);
+        }
+
+        // Await if handler returns a promise
+        if (result && typeof result.then === "function") {
+          result = await result;
         }
 
         // If handler returns an object, merge it with the current data
@@ -559,7 +575,7 @@ class AgentRuntime {
       } catch (error) {
         logger.error(`Handler error for event '${eventName}':`, error);
       }
-    });
+    }
 
     if (matchingHandlers.length > 0) {
       logger.debug(
@@ -1193,7 +1209,7 @@ class AgentRuntime {
     this.mainApp.post("/prompt", async (req, res) => {
       logger.info(`📥 Received POST /prompt request from ${req.ip || 'unknown'}`);
       try {
-        const { prompt, conversationId, metadata } = req.body;
+        const { prompt, ...requestBodyFields } = req.body;
 
         if (!prompt) {
           return res.status(400).json({
@@ -1202,16 +1218,18 @@ class AgentRuntime {
           });
         }
 
-        const response = await this.processDirectPrompt(prompt, {
-          conversationId,
-          metadata,
+        // Build metadata object with all user-provided fields from request body (except prompt)
+        const metadata = {
+          ...requestBodyFields,
+        };
+
+        const response = await this.processDirectPrompt(prompt, metadata, {
           protocol: "http",
           clientIp: req.ip,
         });
 
         res.json({
           response: response.content,
-          conversationId: conversationId || response.conversationId,
           metadata: response.metadata,
           timestamp: new Date().toISOString(),
         });
@@ -1233,24 +1251,23 @@ class AgentRuntime {
   /**
    * Process a direct prompt and emit events
    */
-  async processDirectPrompt(prompt, context = {}) {
+  async processDirectPrompt(prompt, metadata = {}, systemFields = {}) {
     const startTime = Date.now();
-    const conversationId = context.conversationId || require("uuid").v4();
+    let finalPrompt = prompt; // Declare outside try block so it's available in catch
 
     try {
       // Emit request start event and allow handlers to modify the prompt
       const startEventData = {
         prompt,
-        conversationId,
-        context,
+        metadata,
+        ...systemFields, // protocol, clientIp, etc.
         timestamp: new Date().toISOString(),
       };
       
-      const modifiedData = this.emitEventWithResponse("request_output:start", startEventData);
+      const modifiedData = await this.emitEventWithResponse("request_output:start", startEventData);
       
       // Use modified prompt if handlers returned one, otherwise use original
-      const finalPrompt = modifiedData?.prompt || prompt;
-
+      finalPrompt = modifiedData?.prompt || prompt;
       // Process with LLM
       let response;
       if (this.llmProvider === "openai") {
@@ -1281,12 +1298,12 @@ class AgentRuntime {
       const processingTime = Date.now() - startTime;
 
       // Emit request output event
-      this.emitEvent("request_output", {
+      await this.emitEvent("request_output", {
         prompt,
         finalPrompt, // Include the final prompt that was sent to LLM
         response: response.content,
-        conversationId,
-        context,
+        metadata,
+        ...systemFields, // protocol, clientIp, etc.
         usage: response.usage,
         model: response.model,
         processingTime,
@@ -1296,11 +1313,11 @@ class AgentRuntime {
 
       // Emit end event and allow handlers to modify the response before returning
       const endEventData = {
-        conversationId,
         prompt,
         finalPrompt,
         response: response.content,
-        context,
+        metadata,
+        ...systemFields, // protocol, clientIp, etc.
         usage: response.usage,
         model: response.model,
         processingTime,
@@ -1309,14 +1326,13 @@ class AgentRuntime {
         timestamp: new Date().toISOString(),
       };
 
-      const modifiedEndData = this.emitEventWithResponse("request_output:end", endEventData);
+      const modifiedEndData = await this.emitEventWithResponse("request_output:end", endEventData);
       
       // Use the final response (potentially modified by handlers)
       const finalResponse = modifiedEndData.response || response.content;
 
       return {
         content: finalResponse,
-        conversationId,
         metadata: {
           usage: response.usage,
           model: response.model,
@@ -1328,11 +1344,11 @@ class AgentRuntime {
       const processingTime = Date.now() - startTime;
 
       // Emit error event
-      this.emitEvent("request_output:error", {
+      await this.emitEvent("request_output:error", {
         prompt,
         finalPrompt,
-        conversationId,
-        context,
+        metadata,
+        ...systemFields, // protocol, clientIp, etc.
         error: error.message,
         processingTime,
         promptModified: finalPrompt !== prompt,

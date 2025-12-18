@@ -34,7 +34,7 @@ module.exports = {
       })
       //add in a pre-prompt pipeline that handler that can be used to modify and moderate requests to the prompt before it is sent to the LLM, and handler for when the llm responds with response but before it is sent to the client
       .setPrompt("You are a helpful assistant that responds to direct prompts.") // ✅ Auto-enables direct prompting
-      .setBaseImage("nodejs-22") //latest is nodejs-20
+      .setBaseImage("nodejs-20") //latest is nodejs-20
       .setPromptingServer({
         port: 3000,
         authentication: false,
