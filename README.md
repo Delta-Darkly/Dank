@@ -70,6 +70,7 @@ dank logs assistant --follow
 ```
 my-project/
 ├── dank.config.js         # Agent configuration
+├── .dankignore           # Build ignore patterns (optional)
 ├── agents/                # Custom agent code (optional)
 │   └── example-agent.js
 └── .dank/                 # Generated files
@@ -243,7 +244,7 @@ agent
 
 #### Passing Custom Data to Handlers
 
-You can pass any custom data in the request body to the `/prompt` endpoint, and it will be available in your handlers via `data.metadata`. This enables powerful use cases like user authentication, conversation tracking, RAG (Retrieval-Augmented Generation), and custom lookups.
+You can pass any custom data in the request body to the `/prompt` endpoint, and it will be available in your handlers via `data.params`. This enables powerful use cases like user authentication, conversation tracking, RAG (Retrieval-Augmented Generation), and custom lookups.
 
 **Client Request:**
 ```javascript
@@ -264,9 +265,9 @@ You can pass any custom data in the request body to the `/prompt` endpoint, and 
 ```javascript
 agent
   .addHandler('request_output:start', async (data) => {
-    // Access custom data via data.metadata
-    const userId = data.metadata.userId;
-    const conversationId = data.metadata.conversationId;
+    // Access custom data via data.params
+    const userId = data.params.userId;
+    const conversationId = data.params.conversationId;
     
     // Perform authentication
     const user = await authenticateUser(userId);
@@ -287,16 +288,16 @@ agent
   .addHandler('request_output', async (data) => {
     // Log with user context
     await logInteraction({
-      userId: data.metadata.userId,
-      conversationId: data.metadata.conversationId,
+      userId: data.params.userId,
+      conversationId: data.params.conversationId,
       prompt: data.prompt,
       response: data.response,
       timestamp: data.timestamp
     });
     
     // Update user preferences based on interaction
-    if (data.metadata.userPreferences) {
-      await updateUserPreferences(data.metadata.userId, data.metadata.userPreferences);
+    if (data.params.userPreferences) {
+      await updateUserPreferences(data.params.userId, data.params.userPreferences);
     }
   });
 ```
@@ -494,6 +495,68 @@ Dank uses a layered Docker approach:
 1. **Base Image** (`deltadarkly/dank-agent-base`): Common runtime with Node.js, LLM clients
 2. **Agent Images**: Extend base image with agent-specific code
 3. **Containers**: Running instances with resource limits and networking
+
+### Build File Management (.dankignore)
+
+Dank automatically copies files from your project directory into Docker containers during the build process. Use `.dankignore` to control which files are included.
+
+**Default Behavior:**
+- If `.dankignore` doesn't exist: **All files** are copied to the container
+- If `.dankignore` exists: Only files **not matching** the patterns are copied
+
+**Creating `.dankignore`:**
+```bash
+# Created automatically during dank init
+dank init my-project
+
+# Or create manually
+touch .dankignore
+```
+
+**Example `.dankignore`:**
+```
+# Security - Environment variables (IMPORTANT: Never commit .env files!)
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# Dependencies (installed fresh in container)
+node_modules/
+
+# Version control
+.git/
+
+# Build artifacts
+dist/
+build/
+coverage/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+```
+
+**Pattern Matching:**
+- `node_modules` - Exact match
+- `*.log` - Wildcard (matches any `.log` file)
+- `dist/` - Directory pattern (matches `dist` directory and contents)
+- `.env.*` - Pattern matching (matches `.env.local`, `.env.production`, etc.)
+
+**Best Practices:**
+- ✅ Always exclude `.env` files (security)
+- ✅ Exclude `node_modules/` (dependencies installed in container)
+- ✅ Exclude build artifacts (`dist/`, `build/`)
+- ✅ Include source files, assets, and configuration needed at runtime
 
 ### Container Features
 - **Isolated Environments**: Each agent runs in its own container
@@ -780,7 +843,7 @@ docker logs container-id
 - **Authentication**: `docker login ghcr.io`
 - **Push Permissions**: Check namespace permissions
 - **Image Exists**: Use different tag or `--force`
-- **Build Context**: Add `.dockerignore` file
+- **Build Context**: Add `.dankignore` file to control which files are copied
 </details>
 
 ## 📦 Package Exports

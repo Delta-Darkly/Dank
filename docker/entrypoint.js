@@ -1218,12 +1218,12 @@ class AgentRuntime {
           });
         }
 
-        // Build metadata object with all user-provided fields from request body (except prompt)
-        const metadata = {
+        // Build params object with all user-provided fields from request body (except prompt)
+        const params = {
           ...requestBodyFields,
         };
 
-        const response = await this.processDirectPrompt(prompt, metadata, {
+        const response = await this.processDirectPrompt(prompt, params, {
           protocol: "http",
           clientIp: req.ip,
         });
@@ -1251,7 +1251,7 @@ class AgentRuntime {
   /**
    * Process a direct prompt and emit events
    */
-  async processDirectPrompt(prompt, metadata = {}, systemFields = {}) {
+  async processDirectPrompt(prompt, params = {}, systemFields = {}) {
     const startTime = Date.now();
     let finalPrompt = prompt; // Declare outside try block so it's available in catch
 
@@ -1259,7 +1259,7 @@ class AgentRuntime {
       // Emit request start event and allow handlers to modify the prompt
       const startEventData = {
         prompt,
-        metadata,
+        params,
         ...systemFields, // protocol, clientIp, etc.
         timestamp: new Date().toISOString(),
       };
@@ -1302,7 +1302,7 @@ class AgentRuntime {
         prompt,
         finalPrompt, // Include the final prompt that was sent to LLM
         response: response.content,
-        metadata,
+        params,
         ...systemFields, // protocol, clientIp, etc.
         usage: response.usage,
         model: response.model,
@@ -1316,7 +1316,7 @@ class AgentRuntime {
         prompt,
         finalPrompt,
         response: response.content,
-        metadata,
+        params,
         ...systemFields, // protocol, clientIp, etc.
         usage: response.usage,
         model: response.model,
@@ -1347,7 +1347,7 @@ class AgentRuntime {
       await this.emitEvent("request_output:error", {
         prompt,
         finalPrompt,
-        metadata,
+        params,
         ...systemFields, // protocol, clientIp, etc.
         error: error.message,
         processingTime,
